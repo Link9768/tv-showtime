@@ -127,6 +127,7 @@ let watched = JSON.parse(localStorage.getItem('watched') || '{}'); // id -> [sea
 let movies = JSON.parse(localStorage.getItem('movies') || '[]'); // {id,title,year,poster,justwatchUrl,seen}
 let tab = 'up';
 let apiDown = false;
+let showsFilter = { q: '', recent: false, notStarted: false };
 
 function save(){
   localStorage.setItem('shows', JSON.stringify(shows));
@@ -264,10 +265,10 @@ function render() {
   if (tab === 'shows') {
     const sorted = [...shows].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
     const sixMonthsAgo = Date.now() - 6 * 30.44 * 86400000;
-    m.innerHTML = warn + '<h2>Mes séries</h2><input id="filter" type="search" placeholder="🔎 Filtrer mes séries…" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">' +
+    m.innerHTML = warn + '<h2>Mes séries</h2><input id="filter" type="search" placeholder="🔎 Filtrer mes séries…" value="' + esc(showsFilter.q) + '" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">' +
       '<div style="display:flex;gap:20px;margin-bottom:18px;color:var(--muted);font-size:14px">' +
-      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="filterRecent"> Ajoutées récemment</label>' +
-      '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="filterNotStarted"> Pas commencées</label>' +
+      `<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="filterRecent" ${showsFilter.recent ? 'checked' : ''}> Ajoutées récemment</label>` +
+      `<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="filterNotStarted" ${showsFilter.notStarted ? 'checked' : ''}> Pas commencées</label>` +
       '</div><div class="grid">' + sorted.map(s => {
       const next = epCache[s.id]?.next;
       const d = next ? daysUntil(next.airdate) : null;
@@ -278,19 +279,18 @@ function render() {
       return `<div class="poster" data-id="${s.id}" data-name="${esc(s.name.toLowerCase())}" data-recent="${recent}" data-notstarted="${notStarted}">${img}<div class="t">${esc(s.name)}</div>${badge}<button class="del" data-id="${s.id}" title="Retirer">✕</button></div>`;
     }).join('') + '</div>';
     const applyFilters = () => {
-      const q = m.querySelector('#filter').value.trim().toLowerCase();
-      const recentOnly = m.querySelector('#filterRecent').checked;
-      const notStartedOnly = m.querySelector('#filterNotStarted').checked;
+      const q = showsFilter.q.trim().toLowerCase();
       m.querySelectorAll('.poster').forEach(p => {
         const ok = p.dataset.name.includes(q)
-          && (!recentOnly || p.dataset.recent === '1')
-          && (!notStartedOnly || p.dataset.notstarted === '1');
+          && (!showsFilter.recent || p.dataset.recent === '1')
+          && (!showsFilter.notStarted || p.dataset.notstarted === '1');
         p.style.display = ok ? '' : 'none';
       });
     };
-    m.querySelector('#filter').addEventListener('input', applyFilters);
-    m.querySelector('#filterRecent').addEventListener('change', applyFilters);
-    m.querySelector('#filterNotStarted').addEventListener('change', applyFilters);
+    m.querySelector('#filter').addEventListener('input', e => { showsFilter.q = e.target.value; applyFilters(); });
+    m.querySelector('#filterRecent').addEventListener('change', e => { showsFilter.recent = e.target.checked; applyFilters(); });
+    m.querySelector('#filterNotStarted').addEventListener('change', e => { showsFilter.notStarted = e.target.checked; applyFilters(); });
+    applyFilters();
   } else {
     const items = shows.map(s => ({ s, next: epCache[s.id]?.next }))
       .filter(x => x.next).map(x => ({ ...x, d: daysUntil(x.next.airdate) }))
