@@ -105,6 +105,8 @@
     <button id="tabShows">Mes séries</button>
     <button id="tabMovies">Films</button>
     <button id="tabUp">À venir</button>
+    <button id="tabReleases">Dernières sorties</button>
+    <button id="tabAwaited">Les plus attendus</button>
     <button id="tabWhere">Où regarder</button>
     <button id="tabStat">Stat</button>
   </nav>
@@ -120,6 +122,7 @@
 <script>
 const API = 'https://api.tvmaze.com';
 const JW_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/justwatch';
+const SC_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/senscritique';
 const $ = s => document.querySelector(s);
 let shows = JSON.parse(localStorage.getItem('shows') || '[]');
 let epCache = JSON.parse(localStorage.getItem('epCache') || '{}'); // id -> {next, seasons:{num:{eps,minutes}}, fetched:ts}
@@ -139,6 +142,19 @@ async function jwSearch(query) {
   const r = await fetch(JW_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
   const data = await r.json();
   return data.results || [];
+}
+async function scFetch() {
+  const cached = JSON.parse(localStorage.getItem('scCache') || 'null');
+  if (cached && Date.now() - cached.ts < 6 * 3600e3) return cached.data;
+  try {
+    const r = await fetch(SC_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await r.json();
+    localStorage.setItem('scCache', JSON.stringify({ ts: Date.now(), data }));
+    return data;
+  } catch (e) {
+    if (cached) return cached.data;
+    throw e;
+  }
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -253,11 +269,14 @@ function render() {
   $('#tabShows').className = tab === 'shows' ? 'on' : '';
   $('#tabMovies').className = tab === 'movies' ? 'on' : '';
   $('#tabUp').className = tab === 'up' ? 'on' : '';
+  $('#tabReleases').className = tab === 'releases' ? 'on' : '';
+  $('#tabAwaited').className = tab === 'awaited' ? 'on' : '';
   $('#tabWhere').className = tab === 'where' ? 'on' : '';
   $('#tabStat').className = tab === 'stat' ? 'on' : '';
   if (tab === 'stat') { renderStats(); return; }
   if (tab === 'movies') { renderMovies(); return; }
   if (tab === 'where') { renderWhere(); return; }
+  if (tab === 'releases' || tab === 'awaited') { renderSC(tab); return; }
   const m = $('#main');
   const warn = apiDown ? '<div class="warn">API TVMaze inaccessible — affichage des dernières données connues.</div>' : '';
   if (!shows.length) { m.innerHTML = warn + '<div class="empty">Aucune série. Utilise la recherche en haut à droite pour en ajouter.</div>'; return; }
@@ -339,6 +358,40 @@ function renderStats() {
       <div class="v">${r.seasons} saison${r.seasons > 1 ? 's' : ''} · ${r.eps} ép.</div>
       <div class="h">${Math.round(r.min/60)} h</div></div>`).join('')
     : '<div class="empty">Coche des saisons (clic sur une série) pour alimenter les stats.</div>');
+}
+
+/* ---- SensCritique ---- */
+async function renderSC(which) {
+  const m = $('#main');
+  const title = which === 'releases' ? 'Dernières sorties' : 'Les plus attendus';
+  m.innerHTML = `<h2>${title}</h2><div class="empty">Chargement…</div>`;
+  let data;
+  try { data = await scFetch(); }
+  catch { m.innerHTML = `<h2>${title}</h2><div class="empty">SensCritique inaccessible.</div>`; return; }
+  if (tab !== which) return;
+
+  const list = (which === 'releases' ? data.releases : data.awaited) || [];
+  if (!list.length) { m.innerHTML = `<h2>${title}</h2><div class="empty">Aucun film.</div>`; return; }
+
+  m.innerHTML = `<h2>${title}</h2><div class="grid">` + list.map(f => {
+    const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
+    const badge = which === 'awaited'
+      ? `<div class="badge">❤ ${f.wishCount}</div>`
+      : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
+    const has = movies.some(x => x.id === f.id);
+    return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à Mes films">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${has ? ' ✓' : ''}</div>${badge}</div>`;
+  }).join('') + '</div>';
+
+  m.querySelectorAll('.poster[data-sc]').forEach(p => {
+    p.addEventListener('click', () => {
+      const f = list.find(x => x.id === p.dataset.sc);
+      if (!movies.some(x => x.id === f.id)) {
+        movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false });
+        save();
+        renderSC(which);
+      }
+    });
+  });
 }
 
 /* ---- films ---- */
@@ -529,6 +582,8 @@ $('#importFile').addEventListener('change', e => {
 $('#tabShows').onclick = () => { tab = 'shows'; render(); };
 $('#tabMovies').onclick = () => { tab = 'movies'; render(); };
 $('#tabUp').onclick = () => { tab = 'up'; render(); };
+$('#tabReleases').onclick = () => { tab = 'releases'; render(); };
+$('#tabAwaited').onclick = () => { tab = 'awaited'; render(); };
 $('#tabWhere').onclick = () => { tab = 'where'; render(); };
 $('#tabStat').onclick = () => { tab = 'stat'; render(); };
 
