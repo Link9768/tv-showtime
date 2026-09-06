@@ -147,13 +147,14 @@ async function jwSearch(query) {
   const data = await r.json();
   return data.results || [];
 }
+const SC_CACHE_VERSION = 2; // incrementer si le format des donnees renvoyees par le proxy change
 async function scFetch() {
   const cached = JSON.parse(localStorage.getItem('scCache') || 'null');
-  if (cached && Date.now() - cached.ts < 6 * 3600e3) return cached.data;
+  if (cached && cached.v === SC_CACHE_VERSION && Date.now() - cached.ts < 6 * 3600e3) return cached.data;
   try {
     const r = await fetch(SC_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const data = await r.json();
-    localStorage.setItem('scCache', JSON.stringify({ ts: Date.now(), data }));
+    localStorage.setItem('scCache', JSON.stringify({ v: SC_CACHE_VERSION, ts: Date.now(), data }));
     return data;
   } catch (e) {
     if (cached) return cached.data;
