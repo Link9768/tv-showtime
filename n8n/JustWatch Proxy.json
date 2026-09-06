@@ -1,0 +1,140 @@
+{
+  "name": "JustWatch Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "justwatch",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n1",
+      "name": "Webhook JustWatch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "d4f8e2b1-6a93-4c5e-9b7f-3e1a8c6d5f2e",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apis.justwatch.com/graphql",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ operationName: \"GetSearchTitles\", variables: { country: \"FR\", language: \"fr\", first: 6, searchTitlesFilter: { searchQuery: $json.body.query } }, query: \"query GetSearchTitles($country: Country!, $language: Language!, $first: Int!, $searchTitlesFilter: TitleFilter) { popularTitles(country: $country, first: $first, filter: $searchTitlesFilter) { edges { node { id objectType content(country: $country, language: $language) { title fullPath posterUrl originalReleaseYear } offers(country: $country, platform: WEB) { monetizationType standardWebURL package { clearName icon } } } } } }\" }) }}",
+        "options": {}
+      },
+      "id": "n2",
+      "name": "Query GraphQL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nconst edges = raw?.data?.popularTitles?.edges || [];\n\nfunction dedupeOffers(offers) {\n  const groups = { FREE: [], FLATRATE: [], RENT: [], BUY: [] };\n  const seen = new Set();\n  for (const o of offers || []) {\n    const type = o.monetizationType;\n    if (!groups[type]) continue;\n    const name = o.package?.clearName || '?';\n    const key = type + '|' + name;\n    if (seen.has(key)) continue;\n    seen.add(key);\n    groups[type].push({\n      name,\n      icon: o.package?.icon ? 'https://images.justwatch.com' + o.package.icon.replace('{profile}', 's100').replace('{format}', 'png') : '',\n      url: o.standardWebURL || ''\n    });\n  }\n  return groups;\n}\n\nconst results = edges.map(e => {\n  const n = e.node;\n  return {\n    id: n.id,\n    type: n.objectType,\n    title: n.content?.title || '',\n    year: n.content?.originalReleaseYear || null,\n    poster: n.content?.posterUrl ? 'https://images.justwatch.com' + n.content.posterUrl.replace('{profile}', 's276').replace('{format}', 'jpg') : '',\n    justwatchUrl: n.content?.fullPath ? 'https://www.justwatch.com' + n.content.fullPath : '',\n    offers: dedupeOffers(n.offers)\n  };\n});\n\nreturn [{ json: { results } }];"
+      },
+      "id": "n3",
+      "name": "Normalize results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "n4",
+      "name": "Respond JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook JustWatch": {
+      "main": [
+        [
+          {
+            "node": "Query GraphQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query GraphQL": {
+      "main": [
+        [
+          {
+            "node": "Normalize results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize results": {
+      "main": [
+        [
+          {
+            "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "ddaa8225-f001-46cf-b03b-943f2127a3d4",
+  "meta": {
+    "instanceId": "d5f1a329b57671b161e7910ebea7033ce9da3037c5f2de19ffd4c5b13d142216"
+  },
+  "id": "botajUWjukAgNsWo",
+  "tags": []
+}

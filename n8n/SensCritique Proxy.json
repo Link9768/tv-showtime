@@ -1,0 +1,183 @@
+{
+  "name": "SensCritique Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "senscritique",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "s1",
+      "name": "Webhook SensCritique",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7c3e9a15-2d84-4f61-b0a7-9e5c2f8d3b46",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[15], limitPolls:1, limitProductSelections:31, limitRelease:18, limitReviews:1, universe:\\\"movie\\\") { newRelease { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
+        "options": {}
+      },
+      "id": "s2",
+      "name": "Query GraphQL",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const uni = $json.data?.homepageUniverses || {}; const sel = (uni.selections || []).find(s => s.label === 'film_attendu'); const ids = (sel?.products || []).map(p => p.id); const fields = ids.map(id => `p${id}: product(id: ${id}) { id dateReleaseOriginal }`).join(' '); return JSON.stringify({ query: 'query { ' + fields + ' }' }); })() }}",
+        "options": {}
+      },
+      "id": "s5",
+      "name": "Query Dates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const first = $('Query GraphQL').item.json;\nconst uni = first?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : ''\n  };\n}\n\nconst releases = (uni.newRelease || []).map(mapProduct);\nconst awaitedSel = (uni.selections || []).find(s => s.label === 'film_attendu');\nlet awaited = (awaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nawaited = awaited.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n  .filter(f => !f.releaseDate || f.releaseDate >= today);\n\nreturn [{ json: { releases, awaited, fetchedAt: new Date().toISOString() } }];"
+      },
+      "id": "s3",
+      "name": "Normalize results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "s4",
+      "name": "Respond JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook SensCritique": {
+      "main": [
+        [
+          {
+            "node": "Query GraphQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query GraphQL": {
+      "main": [
+        [
+          {
+            "node": "Query Dates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Dates": {
+      "main": [
+        [
+          {
+            "node": "Normalize results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize results": {
+      "main": [
+        [
+          {
+            "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "id": "nDcEvYxDT45SUiUq",
+  "tags": []
+}
