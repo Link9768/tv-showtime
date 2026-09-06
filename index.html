@@ -96,6 +96,10 @@
   .prov-item:hover{border-color:var(--accent)}
   .prov-item img{width:24px;height:24px;border-radius:5px}
   .prov-back{background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:7px 16px;cursor:pointer;font-size:13px;margin-bottom:18px}
+  /* filtre mois attendus */
+  .monthfilter{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+  .monthfilter label{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:7px 14px;cursor:pointer;font-size:13.5px;font-weight:600}
+  .monthfilter input{cursor:pointer}
 </style>
 </head>
 <body>
@@ -361,6 +365,19 @@ function renderStats() {
 }
 
 /* ---- SensCritique ---- */
+const MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+let awaitedMonthFilter = null; // 'YYYY-MM' ou null (pas de filtre)
+
+function next4Months() {
+  const now = new Date();
+  const months = [];
+  for (let i = 0; i < 4; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    months.push({ key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, label: MONTH_NAMES[d.getMonth()] });
+  }
+  return months;
+}
+
 async function renderSC(which) {
   const m = $('#main');
   const title = which === 'releases' ? 'Dernières sorties' : 'Les plus attendus';
@@ -370,17 +387,43 @@ async function renderSC(which) {
   catch { m.innerHTML = `<h2>${title}</h2><div class="empty">SensCritique inaccessible.</div>`; return; }
   if (tab !== which) return;
 
-  const list = (which === 'releases' ? data.releases : data.awaited) || [];
-  if (!list.length) { m.innerHTML = `<h2>${title}</h2><div class="empty">Aucun film.</div>`; return; }
+  let list = (which === 'releases' ? data.releases : data.awaited) || [];
 
-  m.innerHTML = `<h2>${title}</h2><div class="grid">` + list.map(f => {
-    const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
-    const badge = which === 'awaited'
-      ? `<div class="badge">❤ ${f.wishCount}</div>`
-      : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
-    const has = movies.some(x => x.id === f.id);
-    return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à Mes films">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${has ? ' ✓' : ''}</div>${badge}</div>`;
-  }).join('') + '</div>';
+  let monthsHtml = '';
+  if (which === 'awaited') {
+    const months = next4Months();
+    monthsHtml = '<div class="monthfilter">' + months.map(mo =>
+      `<label><input type="checkbox" data-month="${mo.key}" ${awaitedMonthFilter === mo.key ? 'checked' : ''}> ${mo.label}</label>`
+    ).join('') + '</div>';
+    if (awaitedMonthFilter) {
+      // coche un mois = affiche ce mois et tous les suivants jusqu'au dernier des 4 mois proposés
+      const keys = months.map(mo => mo.key);
+      const from = keys.indexOf(awaitedMonthFilter);
+      const allowed = new Set(keys.slice(from));
+      list = list.filter(f => f.releaseDate && allowed.has(f.releaseDate.slice(0, 7)));
+    }
+  }
+
+  if (!list.length) { m.innerHTML = `<h2>${title}</h2>${monthsHtml}<div class="empty">Aucun film${awaitedMonthFilter ? ' ce mois-ci' : ''}.</div>`; }
+  else {
+    m.innerHTML = `<h2>${title}</h2>${monthsHtml}<div class="grid">` + list.map(f => {
+      const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
+      const badge = which === 'awaited'
+        ? `<div class="badge">❤ ${f.wishCount}</div>`
+        : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
+      const has = movies.some(x => x.id === f.id);
+      return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à Mes films">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${has ? ' ✓' : ''}</div>${badge}</div>`;
+    }).join('') + '</div>';
+  }
+
+  if (which === 'awaited') {
+    m.querySelectorAll('[data-month]').forEach(cb => {
+      cb.addEventListener('change', e => {
+        awaitedMonthFilter = e.target.checked ? e.target.dataset.month : null;
+        renderSC(which);
+      });
+    });
+  }
 
   m.querySelectorAll('.poster[data-sc]').forEach(p => {
     p.addEventListener('click', () => {
