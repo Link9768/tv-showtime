@@ -138,6 +138,7 @@ let movies = JSON.parse(localStorage.getItem('movies') || '[]'); // {id,title,ye
 let tab = 'up';
 let apiDown = false;
 let showsFilter = { q: '', recent: false, notStarted: false };
+let moviesFilter = { recent: false, notSeen: false };
 
 function save(){
   localStorage.setItem('shows', JSON.stringify(shows));
@@ -461,7 +462,7 @@ async function renderSC(which) {
     p.addEventListener('click', () => {
       const f = list.find(x => x.id === p.dataset.sc);
       if (!movies.some(x => x.id === f.id)) {
-        movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false });
+        movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now() });
         save();
         renderSC(which);
       }
@@ -479,13 +480,32 @@ function renderMovies() {
     html += '<div class="empty">Aucun film. Utilise la recherche ci-dessus pour en ajouter.</div>';
   } else {
     const sorted = [...movies].sort((a, b) => a.title.localeCompare(b.title, 'fr'));
+    const sixMonthsAgo = Date.now() - 6 * 30.44 * 86400000;
+    html += '<div style="display:flex;gap:20px;margin-bottom:18px;color:var(--muted);font-size:14px">' +
+      `<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="movieFilterRecent" ${moviesFilter.recent ? 'checked' : ''}> Ajoutés récemment</label>` +
+      `<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="movieFilterNotSeen" ${moviesFilter.notSeen ? 'checked' : ''}> Pas vus</label>` +
+      '</div>';
     html += '<div class="grid">' + sorted.map(mv => {
       const badge = mv.seen ? '<div class="badge">✓ vu</div>' : '';
       const img = mv.poster ? `<img src="${esc(mv.poster)}" alt="">` : `<div class="noimg">${esc(mv.title)}</div>`;
-      return `<div class="poster" data-movie="${mv.id}">${img}<div class="t" data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</div>${badge}<button class="del" data-movie-del="${mv.id}" title="Retirer">✕</button></div>`;
+      const recent = mv.dateAdded && mv.dateAdded >= sixMonthsAgo ? '1' : '0';
+      return `<div class="poster" data-movie="${mv.id}" data-recent="${recent}" data-notseen="${mv.seen ? '0' : '1'}">${img}<div class="t" data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</div>${badge}<button class="del" data-movie-del="${mv.id}" title="Retirer">✕</button></div>`;
     }).join('') + '</div>';
   }
   m.innerHTML = html;
+
+  if (movies.length) {
+    const applyMovieFilters = () => {
+      m.querySelectorAll('.poster[data-movie]').forEach(p => {
+        const ok = (!moviesFilter.recent || p.dataset.recent === '1')
+          && (!moviesFilter.notSeen || p.dataset.notseen === '1');
+        p.style.display = ok ? '' : 'none';
+      });
+    };
+    $('#movieFilterRecent').addEventListener('change', e => { moviesFilter.recent = e.target.checked; applyMovieFilters(); });
+    $('#movieFilterNotSeen').addEventListener('change', e => { moviesFilter.notSeen = e.target.checked; applyMovieFilters(); });
+    applyMovieFilters();
+  }
 
   let timer;
   $('#movieSearch').addEventListener('input', e => {
@@ -512,7 +532,7 @@ function renderMovies() {
     if (!el) return;
     const id = el.dataset.add;
     if (!movies.some(x => x.id === id)) {
-      movies.push({ id, title: el.dataset.title, year: el.dataset.year ? +el.dataset.year : null, poster: el.dataset.poster, justwatchUrl: el.dataset.jw, seen: false });
+      movies.push({ id, title: el.dataset.title, year: el.dataset.year ? +el.dataset.year : null, poster: el.dataset.poster, justwatchUrl: el.dataset.jw, seen: false, dateAdded: Date.now() });
       save();
     }
     $('#movieSearch').value = ''; $('#movieResults').innerHTML = '';
