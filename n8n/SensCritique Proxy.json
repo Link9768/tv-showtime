@@ -70,7 +70,39 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ (() => { const uni = $json.data?.homepageUniverses || {}; const sel = (uni.selections || []).find(s => s.label === 'film_attendu'); const ids = (sel?.products || []).map(p => p.id); const fields = ids.map(id => `p${id}: product(id: ${id}) { id dateReleaseOriginal }`).join(' '); return JSON.stringify({ query: 'query { ' + fields + ' }' }); })() }}",
+        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[5,23], limitPolls:1, limitProductSelections:31, limitReviews:1, universe:\\\"tvShow\\\") { selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
+        "options": {}
+      },
+      "id": "s6",
+      "name": "Query GraphQL Series",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        336,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const movieUni = ($('Query GraphQL').item.json.data && $('Query GraphQL').item.json.data.homepageUniverses) || {}; const seriesUni = ($json.data && $json.data.homepageUniverses) || {}; const movieAwaited = (movieUni.selections || []).find(function(s) { return s.label === 'film_attendu'; }); const seriesAwaited = (seriesUni.selections || []).find(function(s) { return s.label === 'serie_attendue'; }); const movieIds = ((movieAwaited && movieAwaited.products) || []).map(function(p) { return p.id; }); const seriesIds = ((seriesAwaited && seriesAwaited.products) || []).map(function(p) { return p.id; }); const uniqueIds = Array.from(new Set(movieIds.concat(seriesIds))); const fields = uniqueIds.map(function(id) { return 'p' + id + ': product(id: ' + id + ') { id dateReleaseOriginal frenchReleaseDate }'; }).join(' '); return JSON.stringify({ query: 'query { ' + fields + ' }' }); })() }}",
         "options": {}
       },
       "id": "s5",
@@ -85,7 +117,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const first = $('Query GraphQL').item.json;\nconst uni = first?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : ''\n  };\n}\n\nconst releases = (uni.newRelease || []).map(mapProduct);\nconst awaitedSel = (uni.selections || []).find(s => s.label === 'film_attendu');\nlet awaited = (awaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nawaited = awaited.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n  .filter(f => !f.releaseDate || f.releaseDate >= today);\n\nreturn [{ json: { releases, awaited, fetchedAt: new Date().toISOString() } }];"
+        "jsCode": "const movieRaw = $('Query GraphQL').item.json;\nconst seriesRaw = $('Query GraphQL Series').item.json;\nconst movieUni = movieRaw?.data?.homepageUniverses || {};\nconst seriesUni = seriesRaw?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : ''\n  };\n}\n\nconst movieReleases = (movieUni.newRelease || []).map(mapProduct);\nconst movieAwaitedSel = (movieUni.selections || []).find(s => s.label === 'film_attendu');\nlet movieAwaited = (movieAwaitedSel?.products || []).map(mapProduct);\n\nconst seriesReleasesSel = (seriesUni.selections || []).find(s => s.label === 'nouvelle_serie');\nconst seriesReleases = (seriesReleasesSel?.products || []).map(mapProduct);\nconst seriesAwaitedSel = (seriesUni.selections || []).find(s => s.label === 'serie_attendue');\nlet seriesAwaited = (seriesAwaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || p.frenchReleaseDate || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nfunction attachDatesAndFilter(list) {\n  return list.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n    .filter(f => !f.releaseDate || f.releaseDate >= today);\n}\nmovieAwaited = attachDatesAndFilter(movieAwaited);\nseriesAwaited = attachDatesAndFilter(seriesAwaited);\n\nreturn [{ json: {\n  movies: { releases: movieReleases, awaited: movieAwaited },\n  series: { releases: seriesReleases, awaited: seriesAwaited },\n  fetchedAt: new Date().toISOString()\n} }];"
       },
       "id": "s3",
       "name": "Normalize results",
@@ -119,6 +151,93 @@
         896,
         0
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "senscritique-detail",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "s7",
+      "name": "Webhook Detail",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        240
+      ],
+      "webhookId": "2b9a4d6e-1f83-4c7a-9e5d-6c8b3a2f7e91",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title synopsis rating yearOfProduction actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
+        "options": {}
+      },
+      "id": "s8",
+      "name": "Query Detail",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        240
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nconst p = raw?.data?.product || null;\nif (!p) return [{ json: { error: 'not_found' } }];\nreturn [{ json: {\n  id: String(p.id),\n  title: p.title || '',\n  year: p.yearOfProduction || null,\n  rating: typeof p.rating === 'number' ? p.rating : null,\n  synopsis: p.synopsis || '',\n  actors: (p.actors || []).slice(0, 8).map(a => ({ name: a.name || '', role: a.role || '' })),\n  backdrop: p.medias?.backdrop || p.medias?.picture || '',\n  videoId: (p.medias?.videos && p.medias.videos[0]) ? p.medias.videos[0].id : null\n} }];"
+      },
+      "id": "s9",
+      "name": "Normalize Detail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "s10",
+      "name": "Respond Detail",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        240
+      ]
     }
   ],
   "pinData": {},
@@ -135,6 +254,17 @@
       ]
     },
     "Query GraphQL": {
+      "main": [
+        [
+          {
+            "node": "Query GraphQL Series",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query GraphQL Series": {
       "main": [
         [
           {
@@ -161,6 +291,39 @@
         [
           {
             "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Detail": {
+      "main": [
+        [
+          {
+            "node": "Query Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Detail": {
+      "main": [
+        [
+          {
+            "node": "Normalize Detail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Detail": {
+      "main": [
+        [
+          {
+            "node": "Respond Detail",
             "type": "main",
             "index": 0
           }

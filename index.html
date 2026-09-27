@@ -40,6 +40,8 @@
   .poster .noimg{display:flex;align-items:center;justify-content:center;font-weight:700;padding:12px;text-align:center;color:#fff}
   .poster .t{padding:10px 12px;font-weight:600;font-size:13.5px}
   .badge{position:absolute;top:8px;right:8px;background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:12px;padding:3px 9px;border-radius:12px}
+  .scinfo{background:none;border:1px solid var(--line);color:var(--muted);border-radius:50%;width:20px;height:20px;line-height:1;cursor:pointer;font-size:12px;vertical-align:middle}
+  .scinfo:hover{border-color:var(--accent);color:var(--accent)}
   .del{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);color:#fff;border:0;border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1;display:none}
   .poster:hover .del{display:block}
   /* à venir */
@@ -138,7 +140,7 @@ let movies = JSON.parse(localStorage.getItem('movies') || '[]'); // {id,title,ye
 let tab = 'up';
 let apiDown = false;
 let showsFilter = { q: '', recent: false, notStarted: false };
-let moviesFilter = { recent: false, notSeen: false };
+let moviesFilter = { q: '', recent: false, notSeen: false };
 
 function save(){
   localStorage.setItem('shows', JSON.stringify(shows));
@@ -151,7 +153,8 @@ async function jwSearch(query) {
   const data = await r.json();
   return data.results || [];
 }
-const SC_CACHE_VERSION = 2; // incrementer si le format des donnees renvoyees par le proxy change
+const SC_DETAIL_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/senscritique-detail';
+const SC_CACHE_VERSION = 3; // incrementer si le format des donnees renvoyees par le proxy change
 async function scFetch() {
   const cached = JSON.parse(localStorage.getItem('scCache') || 'null');
   if (cached && cached.v === SC_CACHE_VERSION && Date.now() - cached.ts < 6 * 3600e3) return cached.data;
@@ -164,6 +167,28 @@ async function scFetch() {
     if (cached) return cached.data;
     throw e;
   }
+}
+const scDetailCache = {}; // cache mémoire (non persisté) pour éviter de refetch la même fiche dans la session
+async function scFetchDetail(id) {
+  if (scDetailCache[id]) return scDetailCache[id];
+  const r = await fetch(SC_DETAIL_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+  const data = await r.json();
+  scDetailCache[id] = data;
+  return data;
+}
+async function addSeriesFromSC(title) {
+  if (shows.some(w => w.name.toLowerCase() === title.toLowerCase())) return true;
+  const r = await fetch(`${API}/search/shows?q=${encodeURIComponent(title)}`);
+  const data = await r.json();
+  if (!data.length) { alert(`« ${title} » n'a pas été trouvée sur TVMaze, elle n'a pas pu être ajoutée à Mes séries.`); return false; }
+  const s = data[0].show;
+  if (shows.some(w => w.id === s.id)) return true;
+  shows.push({ id: s.id, name: s.name, image: s.image ? s.image.medium : '', dateAdded: Date.now() });
+  applyHistory(s.id, s.name);
+  delete epCache[s.id];
+  save();
+  await refreshEpisodes([s.id]);
+  return true;
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
@@ -282,6 +307,7 @@ function render() {
   $('#tabAwaited').className = tab === 'awaited' ? 'on' : '';
   $('#tabWhere').className = tab === 'where' ? 'on' : '';
   $('#tabStat').className = tab === 'stat' ? 'on' : '';
+  $('.searchbox').style.display = tab === 'movies' ? 'none' : '';
   if (tab === 'stat') { renderStats(); return; }
   if (tab === 'movies') { renderMovies(); return; }
   if (tab === 'where') { renderWhere(); return; }
@@ -372,6 +398,7 @@ function renderStats() {
 /* ---- SensCritique ---- */
 const MONTH_NAMES = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 let awaitedMonthFilter = null; // 'YYYY-MM' ou null (pas de filtre)
+let scShowSeries = { releases: false, awaited: false }; // case "Série" par onglet
 
 function next4Months() {
   const now = new Date();
@@ -397,6 +424,28 @@ function weekStart(iso) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function openScDetail(id) {
+  const div = document.createElement('div');
+  div.className = 'overlay';
+  div.innerHTML = `<div class="modal"><button class="close">✕</button><div class="empty">Chargement…</div></div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target === div || e.target.closest('.close')) div.remove(); });
+  scFetchDetail(id).then(d => {
+    if (d.error || !d.title) { div.querySelector('.modal').innerHTML = `<button class="close">✕</button><div class="empty">Fiche indisponible.</div>`; return; }
+    const backdrop = d.backdrop ? `<img src="${esc(d.backdrop)}" alt="" style="width:100%;border-radius:10px;margin-bottom:16px;aspect-ratio:16/9;object-fit:cover">` : '';
+    const rating = d.rating ? `★ ${d.rating}` : '';
+    const actors = d.actors && d.actors.length
+      ? '<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Acteurs</b><br>' + d.actors.map(a => esc(a.name) + (a.role ? ' — ' + esc(a.role) : '')).join('<br>') + '</div>'
+      : '';
+    const video = d.videoId ? `<div style="margin-top:16px;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${esc(d.videoId)}" style="width:100%;height:100%;border:0;border-radius:10px" allowfullscreen></iframe></div>` : '';
+    div.querySelector('.modal').innerHTML = `<button class="close">✕</button>${backdrop}
+      <h3>${esc(d.title)}${d.year ? ' (' + d.year + ')' : ''}</h3>
+      <div class="sub">${rating}</div>
+      <div>${esc(d.synopsis || 'Pas de synopsis disponible.')}</div>
+      ${actors}${video}`;
+  }).catch(() => { div.querySelector('.modal').innerHTML = `<button class="close">✕</button><div class="empty">Fiche indisponible.</div>`; });
+}
+
 async function renderSC(which) {
   const m = $('#main');
   const title = which === 'releases' ? 'Dernières sorties' : 'Les plus attendus';
@@ -406,12 +455,14 @@ async function renderSC(which) {
   catch { m.innerHTML = `<h2>${title}</h2><div class="empty">SensCritique inaccessible.</div>`; return; }
   if (tab !== which) return;
 
-  let list = (which === 'releases' ? data.releases : data.awaited) || [];
+  const isSeries = scShowSeries[which];
+  const bucket = (isSeries ? data.series : data.movies) || {};
+  let list = (which === 'releases' ? bucket.releases : bucket.awaited) || [];
 
-  let monthsHtml = '';
+  let topHtml = `<div class="monthfilter"><label><input type="checkbox" id="scSeriesToggle" ${isSeries ? 'checked' : ''}> Série</label></div>`;
   if (which === 'awaited') {
     const months = next4Months();
-    monthsHtml = '<div class="monthfilter">' + months.map(mo =>
+    topHtml += '<div class="monthfilter">' + months.map(mo =>
       `<label><input type="checkbox" data-month="${mo.key}" ${awaitedMonthFilter === mo.key ? 'checked' : ''}> ${mo.label}</label>`
     ).join('') + '</div>';
     if (awaitedMonthFilter) {
@@ -424,12 +475,12 @@ async function renderSC(which) {
     const badge = which === 'awaited'
       ? `<div class="badge">❤ ${f.wishCount}</div>`
       : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
-    const has = movies.some(x => x.id === f.id);
+    const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
     const dateLine = f.releaseDate ? `<div class="reldate">${formatDateFr(f.releaseDate)}</div>` : '';
-    return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à Mes films">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${has ? ' ✓' : ''}</div>${dateLine}${badge}</div>`;
+    return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button></div>${dateLine}${badge}</div>`;
   }
 
-  if (!list.length) { m.innerHTML = `<h2>${title}</h2>${monthsHtml}<div class="empty">Aucun film${awaitedMonthFilter ? ' ce mois-ci' : ''}.</div>`; }
+  if (!list.length) { m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">Aucun${isSeries ? 'e série' : ' film'}${awaitedMonthFilter ? ' ce mois-ci' : ''}.</div>`; }
   else if (which === 'awaited') {
     const sorted = [...list].sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
     const withDate = sorted.filter(f => f.releaseDate);
@@ -441,13 +492,15 @@ async function renderSC(which) {
       if (w !== currentWeek) { currentWeek = w; currentGroup = { week: w, films: [] }; groups.push(currentGroup); }
       currentGroup.films.push(f);
     }
-    let html = `<h2>${title}</h2>${monthsHtml}`;
+    let html = `<h2>${title}</h2>${topHtml}`;
     html += groups.map(g => `<div class="weekhdr">Semaine du ${formatDateFr(g.week)}</div><div class="grid">${g.films.map(posterHtml).join('')}</div>`).join('');
     if (noDate.length) html += `<div class="weekhdr">Date inconnue</div><div class="grid">${noDate.map(posterHtml).join('')}</div>`;
     m.innerHTML = html;
   } else {
-    m.innerHTML = `<h2>${title}</h2>${monthsHtml}<div class="grid">` + list.map(posterHtml).join('') + '</div>';
+    m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="grid">` + list.map(posterHtml).join('') + '</div>';
   }
+
+  $('#scSeriesToggle').addEventListener('change', e => { scShowSeries[which] = e.target.checked; renderSC(which); });
 
   if (which === 'awaited') {
     m.querySelectorAll('[data-month]').forEach(cb => {
@@ -458,10 +511,17 @@ async function renderSC(which) {
     });
   }
 
+  m.querySelectorAll('[data-info]').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); openScDetail(btn.dataset.info); });
+  });
+
   m.querySelectorAll('.poster[data-sc]').forEach(p => {
-    p.addEventListener('click', () => {
+    p.addEventListener('click', e => {
+      if (e.target.closest('[data-info]')) return;
       const f = list.find(x => x.id === p.dataset.sc);
-      if (!movies.some(x => x.id === f.id)) {
+      if (isSeries) {
+        addSeriesFromSC(f.title).then(() => renderSC(which));
+      } else if (!movies.some(x => x.id === f.id)) {
         movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now() });
         save();
         renderSC(which);
@@ -474,6 +534,7 @@ async function renderSC(which) {
 function renderMovies() {
   const m = $('#main');
   let html = `<h2>Mes films</h2>
+    <input id="movieFilterText" type="search" placeholder="🔎 Filtrer mes films…" value="${esc(moviesFilter.q)}" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">
     <div class="wherebox"><input id="movieSearch" type="search" placeholder="🔍 Chercher un film à ajouter…" autocomplete="off"></div>
     <div class="where-results" id="movieResults"></div>`;
   if (!movies.length) {
@@ -489,19 +550,22 @@ function renderMovies() {
       const badge = mv.seen ? '<div class="badge">✓ vu</div>' : '';
       const img = mv.poster ? `<img src="${esc(mv.poster)}" alt="">` : `<div class="noimg">${esc(mv.title)}</div>`;
       const recent = mv.dateAdded && mv.dateAdded >= sixMonthsAgo ? '1' : '0';
-      return `<div class="poster" data-movie="${mv.id}" data-recent="${recent}" data-notseen="${mv.seen ? '0' : '1'}">${img}<div class="t" data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</div>${badge}<button class="del" data-movie-del="${mv.id}" title="Retirer">✕</button></div>`;
+      return `<div class="poster" data-movie="${mv.id}" data-name="${esc(mv.title.toLowerCase())}" data-recent="${recent}" data-notseen="${mv.seen ? '0' : '1'}">${img}<div class="t" data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</div>${badge}<button class="del" data-movie-del="${mv.id}" title="Retirer">✕</button></div>`;
     }).join('') + '</div>';
   }
   m.innerHTML = html;
 
+  const applyMovieFilters = () => {
+    const q = moviesFilter.q.trim().toLowerCase();
+    m.querySelectorAll('.poster[data-movie]').forEach(p => {
+      const ok = p.dataset.name.includes(q)
+        && (!moviesFilter.recent || p.dataset.recent === '1')
+        && (!moviesFilter.notSeen || p.dataset.notseen === '1');
+      p.style.display = ok ? '' : 'none';
+    });
+  };
+  $('#movieFilterText').addEventListener('input', e => { moviesFilter.q = e.target.value; applyMovieFilters(); });
   if (movies.length) {
-    const applyMovieFilters = () => {
-      m.querySelectorAll('.poster[data-movie]').forEach(p => {
-        const ok = (!moviesFilter.recent || p.dataset.recent === '1')
-          && (!moviesFilter.notSeen || p.dataset.notseen === '1');
-        p.style.display = ok ? '' : 'none';
-      });
-    };
     $('#movieFilterRecent').addEventListener('change', e => { moviesFilter.recent = e.target.checked; applyMovieFilters(); });
     $('#movieFilterNotSeen').addEventListener('change', e => { moviesFilter.notSeen = e.target.checked; applyMovieFilters(); });
     applyMovieFilters();
