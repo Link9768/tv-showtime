@@ -11,7 +11,7 @@
     --soon:#ff5c5c;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif}
+  body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif;overflow-x:hidden}
   header{display:flex;align-items:center;gap:24px;padding:14px 28px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
   .logo{font-weight:800;font-size:19px}
   .logo span{color:var(--accent)}
@@ -477,7 +477,7 @@ async function renderSC(which) {
       : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
     const dateLine = f.releaseDate ? `<div class="reldate">${formatDateFr(f.releaseDate)}</div>` : '';
-    return `<div class="poster" data-sc="${f.id}" title="Cliquer pour ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button></div>${dateLine}${badge}</div>`;
+    return `<div class="poster" data-sc="${f.id}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button></div>${dateLine}${badge}</div>`;
   }
 
   if (!list.length) { m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">Aucun${isSeries ? 'e série' : ' film'}${awaitedMonthFilter ? ' ce mois-ci' : ''}.</div>`; }
@@ -516,12 +516,22 @@ async function renderSC(which) {
   });
 
   m.querySelectorAll('.poster[data-sc]').forEach(p => {
-    p.addEventListener('click', e => {
+    p.addEventListener('dblclick', e => {
       if (e.target.closest('[data-info]')) return;
       const f = list.find(x => x.id === p.dataset.sc);
       if (isSeries) {
-        addSeriesFromSC(f.title).then(() => renderSC(which));
-      } else if (!movies.some(x => x.id === f.id)) {
+        const existing = shows.find(s => s.name.toLowerCase() === f.title.toLowerCase());
+        if (existing) {
+          shows = shows.filter(s => s.id !== existing.id);
+          delete epCache[existing.id]; delete watched[existing.id];
+          save(); renderSC(which);
+        } else {
+          addSeriesFromSC(f.title).then(() => renderSC(which));
+        }
+      } else if (movies.some(x => x.id === f.id)) {
+        movies = movies.filter(x => x.id !== f.id);
+        save(); renderSC(which);
+      } else {
         movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now() });
         save();
         renderSC(which);
@@ -534,9 +544,9 @@ async function renderSC(which) {
 function renderMovies() {
   const m = $('#main');
   let html = `<h2>Mes films</h2>
-    <input id="movieFilterText" type="search" placeholder="🔎 Filtrer mes films…" value="${esc(moviesFilter.q)}" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">
     <div class="wherebox"><input id="movieSearch" type="search" placeholder="🔍 Chercher un film à ajouter…" autocomplete="off"></div>
-    <div class="where-results" id="movieResults"></div>`;
+    <div class="where-results" id="movieResults"></div>
+    <input id="movieFilterText" type="search" placeholder="🔎 Filtrer mes films…" value="${esc(moviesFilter.q)}" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">`;
   if (!movies.length) {
     html += '<div class="empty">Aucun film. Utilise la recherche ci-dessus pour en ajouter.</div>';
   } else {
