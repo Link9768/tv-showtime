@@ -16,8 +16,9 @@
   header{display:flex;align-items:center;gap:24px;padding:14px 28px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:10;flex-wrap:wrap}
   .logo{font-weight:800;font-size:19px}
   .logo span{color:var(--accent)}
-  nav{display:flex;gap:6px}
-  nav button{padding:8px 16px;border-radius:20px;border:0;background:none;color:var(--muted);font-weight:600;font-size:15px;cursor:pointer}
+  nav{display:flex;gap:6px;overflow-x:auto;min-width:0;max-width:100%;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+  nav::-webkit-scrollbar{display:none}
+  nav button{padding:8px 16px;border-radius:20px;border:0;background:none;color:var(--muted);font-weight:600;font-size:15px;cursor:pointer;flex:none}
   nav button.on{background:var(--accent);color:var(--accent-ink)}
   .searchbox{margin-left:auto;position:relative}
   .searchbox input{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:8px 16px;color:var(--text);width:280px;font-size:14px;outline:none}
