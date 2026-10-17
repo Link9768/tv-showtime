@@ -444,7 +444,7 @@ function render() {
   if (!shows.length && tab === 'shows') { m.innerHTML = warn + '<div class="empty">Aucune série. Utilise la recherche en haut à droite pour en ajouter.</div>'; return; }
 
   if (tab === 'shows') {
-    const sorted = [...shows].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+    const sorted = [...shows].sort((a, b) => showsFilter.recent ? (b.dateAdded || 0) - (a.dateAdded || 0) : a.name.localeCompare(b.name, 'fr'));
     const sixMonthsAgo = Date.now() - 6 * 30.44 * 86400000;
     m.innerHTML = warn + '<h2>Mes séries</h2><input id="filter" type="search" placeholder="🔎 Filtrer mes séries…" value="' + esc(showsFilter.q) + '" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none">' +
       '<div style="display:flex;gap:20px;margin-bottom:18px;color:var(--muted);font-size:14px">' +
@@ -469,7 +469,7 @@ function render() {
       });
     };
     m.querySelector('#filter').addEventListener('input', e => { showsFilter.q = e.target.value; applyFilters(); });
-    m.querySelector('#filterRecent').addEventListener('change', e => { showsFilter.recent = e.target.checked; applyFilters(); });
+    m.querySelector('#filterRecent').addEventListener('change', e => { showsFilter.recent = e.target.checked; render(); });
     m.querySelector('#filterNotStarted').addEventListener('change', e => { showsFilter.notStarted = e.target.checked; applyFilters(); });
     applyFilters();
   } else {
