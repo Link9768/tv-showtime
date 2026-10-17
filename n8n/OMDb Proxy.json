@@ -1,0 +1,151 @@
+{
+  "name": "OMDb Proxy",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "omdb",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "o1",
+      "name": "Webhook OMDb",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "9f3b7c21-4e6a-4d8f-8a2b-1c5d9e7f3a62",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.omdbapi.com/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "i",
+              "value": "={{ $json.body.imdbId || '' }}"
+            },
+            {
+              "name": "t",
+              "value": "={{ $json.body.imdbId ? '' : $json.body.title }}"
+            },
+            {
+              "name": "y",
+              "value": "={{ $json.body.imdbId ? '' : ($json.body.year || '') }}"
+            },
+            {
+              "name": "type",
+              "value": "={{ $json.body.imdbId ? '' : ($json.body.type || '') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "o2",
+      "name": "Query OMDb",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "4cV6AltE9g1muubI",
+          "name": "OMDb API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nif (!raw || raw.Response === 'False') {\n  return [{ json: { found: false } }];\n}\nconst ratings = {};\nfor (const r of raw.Ratings || []) {\n  if (r.Source === 'Internet Movie Database') ratings.imdb = r.Value;\n  if (r.Source === 'Rotten Tomatoes') ratings.rottenTomatoes = r.Value;\n  if (r.Source === 'Metacritic') ratings.metacritic = r.Value;\n}\nreturn [{ json: {\n  found: true,\n  title: raw.Title || '',\n  year: raw.Year || '',\n  plot: (raw.Plot && raw.Plot !== 'N/A') ? raw.Plot : null,\n  imdb: ratings.imdb || (raw.imdbRating && raw.imdbRating !== 'N/A' ? raw.imdbRating + '/10' : null),\n  rottenTomatoes: ratings.rottenTomatoes || null,\n  metacritic: ratings.metacritic || null\n} }];"
+      },
+      "id": "o3",
+      "name": "Normalize OMDb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "o4",
+      "name": "Respond OMDb",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook OMDb": {
+      "main": [
+        [
+          {
+            "node": "Query OMDb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query OMDb": {
+      "main": [
+        [
+          {
+            "node": "Normalize OMDb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize OMDb": {
+      "main": [
+        [
+          {
+            "node": "Respond OMDb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "id": "vSgMHEChoBvol4DP",
+  "tags": []
+}
