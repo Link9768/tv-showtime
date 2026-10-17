@@ -46,8 +46,8 @@
   .scinfo:hover{border-color:var(--accent);color:var(--accent)}
   .del{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);color:#fff;border:0;border-radius:50%;width:26px;height:26px;cursor:pointer;font-size:14px;line-height:1;display:none}
   .poster:hover .del{display:block}
-  .poster-check{position:absolute;top:8px;left:8px;background:rgba(0,0,0,.65);border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;cursor:pointer}
-  .poster-check input{width:16px;height:16px;cursor:pointer;accent-color:var(--accent)}
+  .title-check{display:inline-flex;align-items:center;cursor:pointer;margin-right:4px;vertical-align:middle}
+  .title-check input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
   /* à venir */
   .up{display:flex;flex-direction:column;gap:12px}
   .row{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
@@ -550,14 +550,16 @@ function openScDetail(f, isSeries) {
     const video = d.videoId ? `<div style="margin-top:16px;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${esc(d.videoId)}" style="width:100%;height:100%;border:0;border-radius:10px" allowfullscreen></iframe></div>` : '';
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
     div.querySelector('.modal').innerHTML = `<button class="close">✕</button>${backdrop}
-      <h3>${esc(d.title)}${d.year ? ' (' + d.year + ')' : ''}</h3>
+      <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <span>${esc(d.title)}${d.year ? ' (' + d.year + ')' : ''}</span>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
+          <input type="checkbox" id="scDetailAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
+        </label>
+      </h3>
       <div class="sub">${rating}</div>
       <div class="sub" id="scOmdbRatings">Notes externes…</div>
       <div>${esc(d.synopsis || 'Pas de synopsis disponible.')}</div>
-      ${actors}${video}
-      <label style="display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer;font-weight:700">
-        <input type="checkbox" id="scDetailAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
-      </label>`;
+      ${actors}${video}`;
     $('#scDetailAddCheck').addEventListener('change', e => {
       if (isSeries) {
         if (e.target.checked) { addSeriesFromSC(f.title).then(() => { if (tab === 'awaited' || tab === 'releases') renderSC(tab); }); }
@@ -706,7 +708,7 @@ function renderMovies() {
       const badge = mv.seen ? '<div class="badge">✓ vu</div>' : '';
       const img = mv.poster ? `<img src="${esc(mv.poster)}" alt="">` : `<div class="noimg">${esc(mv.title)}</div>`;
       const recent = mv.dateAdded && mv.dateAdded >= sixMonthsAgo ? '1' : '0';
-      return `<div class="poster" data-movie="${mv.id}" data-name="${esc(mv.title.toLowerCase())}" data-recent="${recent}" data-notseen="${mv.seen ? '0' : '1'}">${img}<label class="poster-check" title="Retirer de Mes films"><input type="checkbox" data-movie-del="${mv.id}" checked></label><div class="t" data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</div>${badge}</div>`;
+      return `<div class="poster" data-movie="${mv.id}" data-name="${esc(mv.title.toLowerCase())}" data-recent="${recent}" data-notseen="${mv.seen ? '0' : '1'}">${img}<div class="t"><label class="title-check" title="Retirer de Mes films"><input type="checkbox" data-movie-del="${mv.id}" checked></label><span data-movie-seen="${mv.id}" title="Cliquer pour marquer vu/non vu">${esc(mv.title)}${mv.year ? ' (' + mv.year + ')' : ''}</span></div>${badge}</div>`;
     }).join('') + '</div>';
   }
   m.innerHTML = html;
@@ -758,9 +760,9 @@ function renderMovies() {
   });
   m.querySelectorAll('.poster[data-movie]').forEach(p => {
     p.addEventListener('click', e => {
-      if (e.target.closest('.poster-check') || e.target.closest('[data-movie-seen]')) return;
+      if (e.target.closest('.title-check') || e.target.closest('[data-movie-seen]')) return;
       const mv = movies.find(x => x.id === p.dataset.movie);
-      if (mv) openProvidersForTitle(mv.title);
+      if (mv) openProvidersForTitle(mv.title, mv.year);
     });
   });
   m.querySelectorAll('[data-movie-seen]').forEach(el => {
@@ -786,6 +788,7 @@ function renderWhere() {
     <div class="wherebox"><input id="whereSearch" type="search" placeholder="🔍 Chercher un film ou une série…" autocomplete="off"></div>
     <div class="where-results" id="whereResults"></div>`;
   let timer;
+  let lastWhereResults = {}; // id -> résultat JustWatch complet (évite de re-chercher par titre, ambigu si doublons)
   $('#whereSearch').addEventListener('input', e => {
     clearTimeout(timer);
     const q = e.target.value.trim();
@@ -794,27 +797,32 @@ function renderWhere() {
       $('#whereResults').innerHTML = '<div class="empty">Recherche…</div>';
       try {
         const results = await jwSearch(q);
+        lastWhereResults = {};
         $('#whereResults').innerHTML = results.length ? results.map(r => {
+          lastWhereResults[r.id] = r;
           const img = r.poster ? `<img src="${esc(r.poster)}" alt="">` : '<div class="noimg"></div>';
-          return `<div class="where-res" data-title="${esc(r.title)}">
+          return `<div class="where-res" data-id="${r.id}">
             ${img}<div><div class="n">${esc(r.title)}</div><div class="y">${r.year || '?'} · ${r.type === 'MOVIE' ? 'Film' : 'Série'}</div></div></div>`;
         }).join('') : '<div class="empty">Aucun résultat.</div>';
       } catch { $('#whereResults').innerHTML = '<div class="empty">Erreur de recherche.</div>'; }
     }, 400);
   });
   $('#whereResults').addEventListener('click', e => {
-    const el = e.target.closest('.where-res[data-title]');
-    if (el) openProvidersForTitle(el.dataset.title);
+    const el = e.target.closest('.where-res[data-id]');
+    const r = el && lastWhereResults[el.dataset.id];
+    if (r) renderProviders(r);
   });
 }
 
-async function openProvidersForTitle(title) {
+async function openProvidersForTitle(title, year) {
   const m = $('#main');
   m.innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Chargement…</div>';
   $('#provBack').onclick = () => render();
   try {
     const results = await jwSearch(title);
-    const hit = results.find(r => r.title.toLowerCase() === title.toLowerCase()) || results[0];
+    const sameTitle = results.filter(r => r.title.toLowerCase() === title.toLowerCase());
+    // plusieurs films peuvent partager le meme titre (ex: remakes) : on prefere celui dont l'annee correspond
+    const hit = (year && sameTitle.find(r => String(r.year) === String(year))) || sameTitle[0] || results[0];
     if (!hit) { $('#main').innerHTML += '<div class="empty">Aucune information disponible.</div>'; return; }
     renderProviders(hit);
   } catch { $('#main').innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Erreur de recherche.</div>'; $('#provBack').onclick = () => render(); }
