@@ -444,20 +444,21 @@ function render() {
     m.querySelector('#filterNotStarted').addEventListener('change', e => { showsFilter.notStarted = e.target.checked; applyFilters(); });
     applyFilters();
   } else {
-    const showItems = shows.map(s => ({ kind: 'show', s, next: epCache[s.id]?.next }))
-      .filter(x => x.next).map(x => ({ ...x, d: daysUntil(x.next.airdate) }))
-      .filter(x => x.d >= 0);
-    const movieItems = upShowMovies ? movies.filter(mv => mv.releaseDate)
-      .map(mv => ({ kind: 'movie', mv, d: daysUntil(mv.releaseDate) }))
-      .filter(x => x.d >= 0) : [];
-    const items = [...showItems, ...movieItems].sort((a,b) => a.d - b.d);
+    const items = upShowMovies
+      ? movies.filter(mv => mv.releaseDate)
+          .map(mv => ({ kind: 'movie', mv, d: daysUntil(mv.releaseDate) }))
+          .filter(x => x.d >= 0)
+      : shows.map(s => ({ kind: 'show', s, next: epCache[s.id]?.next }))
+          .filter(x => x.next).map(x => ({ ...x, d: daysUntil(x.next.airdate) }))
+          .filter(x => x.d >= 0);
+    items.sort((a,b) => a.d - b.d);
     const groups = [
       ["Aujourd'hui", items.filter(x => x.d === 0), 'today'],
       ['Cette semaine', items.filter(x => x.d > 0 && x.d <= 7), 'week'],
       ['Ce mois-ci', items.filter(x => x.d > 7 && x.d <= 30), ''],
       ['Plus tard', items.filter(x => x.d > 30), ''],
     ];
-    let html = warn + '<h2>Prochains épisodes</h2>' +
+    let html = warn + `<h2>${upShowMovies ? 'Prochains films' : 'Prochains épisodes'}</h2>` +
       `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-size:14px;margin-bottom:18px"><input type="checkbox" id="upShowMovies" ${upShowMovies ? 'checked' : ''}> Film</label>` +
       '<div class="up">';
     let any = false;
@@ -476,7 +477,7 @@ function render() {
           <div class="count ${cls}"><b>${x.d === 0 ? "Aujourd'hui" : countLabel(x.d)}</b><small>${fmtDate(x.mv.releaseDate)}</small></div>
         </div>`).join('');
     }
-    if (!any) html += '<div class="empty">Rien à venir.</div>';
+    if (!any) html += `<div class="empty">${upShowMovies ? 'Aucun film à venir parmi tes films ajoutés.' : 'Rien à venir.'}</div>`;
     m.innerHTML = html + '</div>';
     $('#upShowMovies').addEventListener('change', e => { upShowMovies = e.target.checked; render(); });
   }
