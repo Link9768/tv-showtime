@@ -164,6 +164,31 @@ async function omdbFetch(body) {
   const r = await fetch(OMDB_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return r.json();
 }
+const SC_RATING_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/senscritique-rating';
+const scRatingCache = {}; // cache mémoire de session : "type|titre|année" -> réponse
+async function scRatingFetch(title, year, type) {
+  const key = type + '|' + title + '|' + (year || '');
+  if (scRatingCache[key]) return scRatingCache[key];
+  const r = await fetch(SC_RATING_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, year: year || '', type }) });
+  const d = await r.json();
+  scRatingCache[key] = d;
+  return d;
+}
+function scRatingHtml(d) {
+  if (!d || !d.found) return '<div class="sub">SensCritique : fiche introuvable.</div>';
+  const label = d.rating ? '★ ' + esc(d.rating) : 'pas encore noté';
+  return `<div class="sub">SensCritique ${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${label}</a>` : label}</div>`;
+}
+// remplit le placeholder [data-sc-rating] de root avec la note SensCritique (titre + année + type 'movie'|'series')
+function fillScRating(root, title, year, type) {
+  scRatingFetch(title, year, type).then(d => {
+    const el = root.querySelector('[data-sc-rating]');
+    if (el) el.outerHTML = scRatingHtml(d);
+  }).catch(() => {
+    const el = root.querySelector('[data-sc-rating]');
+    if (el) el.outerHTML = scRatingHtml(null);
+  });
+}
 function omdbRatingsHtml(d) {
   if (!d || !d.found) return '<div class="sub">Notes externes indisponibles.</div>';
   const parts = [];
@@ -295,6 +320,7 @@ function openShowPreview(s) {
   div.innerHTML = `<div class="modal"><button class="close">✕</button>${img}
     <h3>${esc(s.name)}${year ? ' (' + year + ')' : ''}</h3>
     <div class="sub">${[tvmazeRating, network].filter(Boolean).join(' · ')}</div>
+    <div class="sub" data-sc-rating>SensCritique…</div>
     <div class="sub" id="previewOmdbRatings">Notes externes…</div>
     <div>${esc(stripHtml(s.summary)) || 'Pas de synopsis disponible.'}</div>
     <label style="display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer;font-weight:700">
@@ -317,6 +343,7 @@ function openShowPreview(s) {
       save(); render();
     }
   });
+  fillScRating(div, s.name, year, 'series');
   const imdbId = s.externals?.imdb;
   omdbFetch(imdbId ? { imdbId } : { title: s.name, year, type: 'series' }).then(od => {
     if (!div.isConnected) return;
@@ -334,6 +361,7 @@ function openMoviePreview(f) {
   const img = f.poster ? `<img src="${esc(f.poster)}" alt="" style="width:100%;border-radius:10px;margin-bottom:16px;max-width:200px">` : '';
   div.innerHTML = `<div class="modal"><button class="close">✕</button>${img}
     <h3>${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}</h3>
+    <div class="sub" data-sc-rating>SensCritique…</div>
     <div class="sub" id="previewOmdbRatings">Notes externes…</div>
     <div id="previewPlot">Chargement du synopsis…</div>
     <label style="display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer;font-weight:700">
@@ -353,6 +381,7 @@ function openMoviePreview(f) {
     }
     if (tab === 'movies') renderMovies();
   });
+  fillScRating(div, f.title, f.year, 'movie');
   omdbFetch({ title: f.title, year: f.year || '', type: 'movie' }).then(od => {
     if (!div.isConnected) return;
     const rEl = div.querySelector('#previewOmdbRatings');
@@ -836,6 +865,7 @@ function renderProviders(hit) {
     <div class="providers">
       <div class="prov-head">${img}<div><h3>${esc(hit.title)}${hit.year ? ' (' + hit.year + ')' : ''}</h3>
       ${hit.justwatchUrl ? `<a href="${esc(hit.justwatchUrl)}" target="_blank" rel="noopener">Voir sur JustWatch ↗</a>` : ''}</div></div>
+      <div class="sub" data-sc-rating>SensCritique…</div>
       <div class="sub" id="provOmdbRatings">Notes externes…</div>`;
   let any = false;
   for (const key of ['FLATRATE']) {
@@ -849,6 +879,7 @@ function renderProviders(hit) {
   if (!any) html += '<div class="empty">Pas d\'offre d\'abonnement trouvée en France pour ce titre.</div>';
   $('#main').innerHTML = html + '</div>';
   $('#provBack').onclick = () => render();
+  fillScRating($('#main'), hit.title, hit.year, hit.type === 'MOVIE' ? 'movie' : 'series');
   omdbFetch({ title: hit.title, year: hit.year || '', type: hit.type === 'MOVIE' ? 'movie' : 'series' }).then(od => {
     const el = $('#provOmdbRatings');
     if (el) el.outerHTML = omdbRatingsHtml(od);
