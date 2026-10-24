@@ -177,7 +177,8 @@ async function scRatingFetch(title, year, type) {
 function scRatingHtml(d) {
   if (!d || !d.found) return '<div class="sub">SensCritique : fiche introuvable.</div>';
   const label = d.rating ? '★ ' + esc(d.rating) : 'pas encore noté';
-  return `<div class="sub">SensCritique ${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${label}</a>` : label}</div>`;
+  const scouts = d.scouts != null ? ` · Mes éclaireurs 👥 ★ ${esc(d.scouts)} (${esc(d.scoutsCount)} note${d.scoutsCount > 1 ? 's' : ''})` : '';
+  return `<div class="sub">SensCritique ${d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">${label}</a>` : label}${scouts}</div>`;
 }
 // remplit le placeholder [data-sc-rating] de root avec la note SensCritique (titre + année + type 'movie'|'series')
 function fillScRating(root, title, year, type) {
@@ -406,6 +407,8 @@ function openShow(id) {
   const div = document.createElement('div');
   div.className = 'overlay';
   div.innerHTML = `<div class="modal"><button class="close">✕</button><h3>${esc(s.name)}</h3>
+    <div class="sub" data-sc-rating>SensCritique…</div>
+    <button class="prov-back" data-where>📺 Où regarder</button>
     <div class="sub">Coche une saison = toute la saison vue</div>` +
     nums.map(n => {
       const sn = c.seasons[n];
@@ -414,6 +417,7 @@ function openShow(id) {
     }).join('') + '</div>';
   div.addEventListener('click', e => {
     if (e.target === div || e.target.closest('.close')) { div.remove(); render(); return; }
+    if (e.target.closest('[data-where]')) { div.remove(); goWhere(s.name, '', 'SHOW'); return; }
     const btn = e.target.closest('.circle');
     if (!btn) return;
     const n = +btn.dataset.s;
@@ -423,6 +427,7 @@ function openShow(id) {
     btn.classList.toggle('on'); btn.textContent = btn.classList.contains('on') ? '✓' : '';
   });
   document.body.appendChild(div);
+  fillScRating(div, s.name, '', 'series');
 }
 
 /* ---- rendu ---- */
@@ -908,21 +913,33 @@ function renderMovies() {
 }
 
 /* ---- où regarder ---- */
+let whereQuery = ''; // dernière recherche de l'onglet Où regarder (conservée au retour)
+// raccourci depuis Films / Mes séries : bascule sur Où regarder et affiche directement les plateformes
+function goWhere(title, year, type) {
+  tab = 'where'; whereQuery = title;
+  render();
+  openProvidersForTitle(title, year, type);
+}
 function renderWhere() {
   const m = $('#main');
   m.innerHTML = `<h2>Où regarder</h2>
-    <div class="wherebox"><input id="whereSearch" type="search" placeholder="🔍 Chercher un film ou une série…" autocomplete="off"></div>
+    <div class="wherebox"><input id="whereSearch" type="search" placeholder="🔍 Chercher un film ou une série…" autocomplete="off" value="${esc(whereQuery)}"></div>
     <div class="where-results" id="whereResults"></div>`;
   let timer;
   let lastWhereResults = {}; // id -> résultat JustWatch complet (évite de re-chercher par titre, ambigu si doublons)
   $('#whereSearch').addEventListener('input', e => {
     clearTimeout(timer);
     const q = e.target.value.trim();
+    whereQuery = q;
     if (!q) { $('#whereResults').innerHTML = ''; return; }
-    timer = setTimeout(async () => {
+    timer = setTimeout(() => whereSearch(q), 400);
+  });
+  async function whereSearch(q) {
+      if (!$('#whereResults')) return;
       $('#whereResults').innerHTML = '<div class="empty">Recherche…</div>';
       try {
         const results = await jwSearch(q);
+        if (!$('#whereResults')) return; // la vue a changé pendant la recherche
         lastWhereResults = {};
         $('#whereResults').innerHTML = results.length ? results.map(r => {
           lastWhereResults[r.id] = r;
@@ -930,9 +947,9 @@ function renderWhere() {
           return `<div class="where-res" data-id="${r.id}">
             ${img}<div><div class="n">${esc(r.title)}</div><div class="y">${r.year || '?'} · ${r.type === 'MOVIE' ? 'Film' : 'Série'}</div></div></div>`;
         }).join('') : '<div class="empty">Aucun résultat.</div>';
-      } catch { $('#whereResults').innerHTML = '<div class="empty">Erreur de recherche.</div>'; }
-    }, 400);
-  });
+      } catch { if ($('#whereResults')) $('#whereResults').innerHTML = '<div class="empty">Erreur de recherche.</div>'; }
+  }
+  if (whereQuery) whereSearch(whereQuery);
   $('#whereResults').addEventListener('click', e => {
     const el = e.target.closest('.where-res[data-id]');
     const r = el && lastWhereResults[el.dataset.id];
@@ -940,13 +957,13 @@ function renderWhere() {
   });
 }
 
-async function openProvidersForTitle(title, year) {
+async function openProvidersForTitle(title, year, type) {
   const m = $('#main');
   m.innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Chargement…</div>';
   $('#provBack').onclick = () => render();
   try {
     const results = await jwSearch(title);
-    const sameTitle = results.filter(r => r.title.toLowerCase() === title.toLowerCase());
+    const sameTitle = results.filter(r => r.title.toLowerCase() === title.toLowerCase() && (!type || r.type === type));
     // plusieurs films peuvent partager le meme titre (ex: remakes) : on prefere celui dont l'annee correspond
     const hit = (year && sameTitle.find(r => String(r.year) === String(year))) || sameTitle[0] || results[0];
     if (!hit) { $('#main').innerHTML += '<div class="empty">Aucune information disponible.</div>'; return; }
@@ -960,7 +977,7 @@ function renderProviders(hit) {
   let html = `<button class="prov-back" id="provBack">← Retour</button>
     <div class="providers">
       <div class="prov-head">${img}<div><h3>${esc(hit.title)}${hit.year ? ' (' + hit.year + ')' : ''}</h3>
-      ${hit.justwatchUrl ? `<a href="${esc(hit.justwatchUrl)}" target="_blank" rel="noopener">Voir sur JustWatch ↗</a>` : ''}</div></div>
+      ${tab !== 'where' ? '<a href="#" id="provGoWhere">📺 Voir dans Où regarder</a>' : ''}</div></div>
       <div class="sub" data-sc-rating>SensCritique…</div>
       <div class="sub" id="provOmdbRatings">Notes externes…</div>`;
   let any = false;
@@ -975,6 +992,7 @@ function renderProviders(hit) {
   if (!any) html += '<div class="empty">Pas d\'offre d\'abonnement trouvée en France pour ce titre.</div>';
   $('#main').innerHTML = html + '</div>';
   $('#provBack').onclick = () => render();
+  if ($('#provGoWhere')) $('#provGoWhere').onclick = e => { e.preventDefault(); goWhere(hit.title, hit.year, hit.type); };
   fillScRating($('#main'), hit.title, hit.year, hit.type === 'MOVIE' ? 'movie' : 'series');
   omdbFetch({ title: hit.title, year: hit.year || '', type: hit.type === 'MOVIE' ? 'movie' : 'series' }).then(od => {
     const el = $('#provOmdbRatings');

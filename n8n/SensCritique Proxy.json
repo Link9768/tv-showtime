@@ -300,8 +300,10 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ operationName: 'SearchAutocomplete', variables: { keywords: String($json.body.title || ''), universe: null, limit: 15 }, query: 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { id title originalTitle dateRelease dateReleaseOriginal universe url rating } } } }' }) }}",
-        "options": {}
+        "jsonBody": "={{ JSON.stringify({ operationName: 'SearchAutocomplete', variables: { keywords: String($json.body.title || ''), universe: null, limit: 15 }, query: 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { id title originalTitle dateRelease dateReleaseOriginal universe url rating scoutsAverage { average count } } } } }' }) }}",
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "s12",
       "name": "Query Search",
@@ -311,11 +313,17 @@
         224,
         480
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SvnNZgHO05QApH3e",
+          "name": "SensCritique Jeton"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const body = $('Webhook Rating').item.json.body || {};\nconst wantUniverse = body.type === 'series' ? 4 : 1;\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9]+/g, ' ').trim();\nconst yearOf = p => String(p.dateReleaseOriginal || p.dateRelease || '').slice(0, 4);\n\nconst raw = items[0].json;\nconst products = ((raw && raw.data && raw.data.searchAutocomplete && raw.data.searchAutocomplete.items) || [])\n  .map(i => i.product).filter(p => p && p.universe === wantUniverse);\nconst wantTitle = norm(body.title);\nconst candidates = products.filter(p => norm(p.title) === wantTitle || norm(p.originalTitle) === wantTitle);\n\nlet hit = null;\nif (body.year) {\n  const y = Number(body.year);\n  hit = candidates.find(p => yearOf(p) === String(y))\n    || candidates.find(p => Math.abs(Number(yearOf(p)) - y) <= 1)\n    || (candidates.length === 1 ? candidates[0] : null);\n} else {\n  hit = candidates[0] || null;\n}\n// repli : titres qui different par un sous-titre (ex: \"Dune - Premiere partie\" vs \"Dune\"), annee identique exigee\nif (!hit && body.year) {\n  const ys = String(Number(body.year));\n  hit = products.find(p => yearOf(p) === ys && norm(p.title).length >= 3\n    && (wantTitle.startsWith(norm(p.title) + ' ') || norm(p.title).startsWith(wantTitle + ' '))) || null;\n}\nif (!hit) return [{ json: { found: false } }];\nreturn [{ json: {\n  found: true,\n  id: String(hit.id),\n  title: hit.title,\n  year: yearOf(hit) || null,\n  rating: typeof hit.rating === 'number' ? hit.rating : null,\n  url: hit.url ? 'https://www.senscritique.com' + hit.url : ''\n} }];"
+        "jsCode": "const body = $('Webhook Rating').item.json.body || {};\nconst wantUniverse = body.type === 'series' ? 4 : 1;\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9]+/g, ' ').trim();\nconst yearOf = p => String(p.dateReleaseOriginal || p.dateRelease || '').slice(0, 4);\n\nconst raw = items[0].json;\nconst products = ((raw && raw.data && raw.data.searchAutocomplete && raw.data.searchAutocomplete.items) || [])\n  .map(i => i.product).filter(p => p && p.universe === wantUniverse);\nconst wantTitle = norm(body.title);\nconst candidates = products.filter(p => norm(p.title) === wantTitle || norm(p.originalTitle) === wantTitle);\n\nlet hit = null;\nif (body.year) {\n  const y = Number(body.year);\n  hit = candidates.find(p => yearOf(p) === String(y))\n    || candidates.find(p => Math.abs(Number(yearOf(p)) - y) <= 1)\n    || (candidates.length === 1 ? candidates[0] : null);\n} else {\n  hit = candidates[0] || null;\n}\n// repli : titres qui different par un sous-titre (ex: \"Dune - Premiere partie\" vs \"Dune\"), annee identique exigee\nif (!hit && body.year) {\n  const ys = String(Number(body.year));\n  hit = products.find(p => yearOf(p) === ys && norm(p.title).length >= 3\n    && (wantTitle.startsWith(norm(p.title) + ' ') || norm(p.title).startsWith(wantTitle + ' '))) || null;\n}\nif (!hit) return [{ json: { found: false } }];\nreturn [{ json: {\n  found: true,\n  id: String(hit.id),\n  title: hit.title,\n  year: yearOf(hit) || null,\n  rating: typeof hit.rating === 'number' ? hit.rating : null,\n  scouts: hit.scoutsAverage?.average ?? null,\n  scoutsCount: hit.scoutsAverage?.count ?? 0,\n  url: hit.url ? 'https://www.senscritique.com' + hit.url : ''\n} }];"
       },
       "id": "s13",
       "name": "Match Rating",
