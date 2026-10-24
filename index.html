@@ -434,7 +434,7 @@ function render() {
   $('#tabAwaited').className = tab === 'awaited' ? 'on' : '';
   $('#tabWhere').className = tab === 'where' ? 'on' : '';
   $('#tabStat').className = tab === 'stat' ? 'on' : '';
-  $('.searchbox').style.display = tab === 'movies' ? 'none' : '';
+  $('.searchbox').style.display = tab === 'movies' || tab === 'where' ? 'none' : '';
   if (tab === 'stat') { renderStats(); return; }
   if (tab === 'movies') { renderMovies(); return; }
   if (tab === 'where') { renderWhere(); return; }
@@ -620,20 +620,100 @@ function openScDetail(f, isSeries) {
   }).catch(() => { div.querySelector('.modal').innerHTML = `<button class="close">✕</button><div class="empty">Fiche indisponible.</div>`; });
 }
 
+const JW_NEW_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/justwatch-new';
+let jwNewCache = null; // cache mémoire de session
+let releasesPlatforms = false; // case "Sur les plateformes" sur Dernières sorties
+async function jwNewFetch() {
+  if (!jwNewCache) jwNewCache = fetch(JW_NEW_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()).catch(e => { jwNewCache = null; throw e; });
+  return jwNewCache;
+}
+
+function openPlatformDetail(f, isSeries) {
+  const div = document.createElement('div');
+  div.className = 'overlay';
+  const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
+  div.innerHTML = `<div class="modal"><button class="close">✕</button>
+    ${f.poster ? `<img src="${esc(f.poster)}" alt="" style="width:100%;border-radius:10px;margin-bottom:16px;max-width:200px">` : ''}
+    <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span>${esc(f.title)}${f.season ? ' — ' + esc(f.season) : ''}${f.year ? ' (' + f.year + ')' : ''}</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
+        <input type="checkbox" id="pfAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
+      </label>
+    </h3>
+    <div class="sub">${esc(f.platform)} · depuis le ${formatDateFr(f.date)}${f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">JustWatch ↗</a>` : ''}</div>
+    <div class="sub" data-sc-rating>SensCritique…</div>
+    <div>${esc(f.synopsis || 'Pas de synopsis disponible.')}</div></div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => { if (e.target === div || e.target.closest('.close')) div.remove(); });
+  $('#pfAddCheck').addEventListener('change', () => togglePlatformItem(f, isSeries));
+  fillScRating(div, f.title, f.year, isSeries ? 'series' : 'movie');
+}
+function togglePlatformItem(f, isSeries) {
+  if (isSeries) {
+    const existing = shows.find(s => s.name.toLowerCase() === f.title.toLowerCase());
+    if (existing) { shows = shows.filter(s => s.id !== existing.id); delete epCache[existing.id]; delete watched[existing.id]; save(); renderSC('releases'); }
+    else addSeriesFromSC(f.title).then(() => renderSC('releases'));
+  } else if (movies.some(x => x.id === f.id)) {
+    movies = movies.filter(x => x.id !== f.id); save(); renderSC('releases');
+  } else {
+    movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now() });
+    save(); renderSC('releases');
+  }
+}
+
+async function renderPlatforms(m, title, topHtml, isSeries) {
+  m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">Chargement…</div>`;
+  const bind = () => {
+    $('#scSeriesToggle').addEventListener('change', e => { scShowSeries.releases = e.target.checked; renderSC('releases'); });
+    $('#scPlatformsToggle').addEventListener('change', e => { releasesPlatforms = e.target.checked; renderSC('releases'); });
+  };
+  bind();
+  let data;
+  try { data = await jwNewFetch(); }
+  catch { m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">JustWatch inaccessible.</div>`; bind(); return; }
+  if (tab !== 'releases' || !releasesPlatforms) return;
+  const minYear = new Date().getFullYear() - 1; // on écarte les vieux titres de catalogue
+  const list = ((isSeries ? data.series : data.movies) || []).filter(f => f.year && f.year >= minYear).slice(0, 60);
+  m.innerHTML = `<h2>${title}</h2>${topHtml}` + (list.length ? '<div class="grid">' + list.map(f => {
+    const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
+    const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
+    return `<div class="poster" data-pf="${esc(f.id)}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.season ? ' — ' + esc(f.season) : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-pfinfo="${esc(f.id)}" title="Voir la fiche">ⓘ</button></div><div class="reldate">${esc(f.platform)} · ${formatDateFr(f.date)}</div><div class="badge" data-pfrating="${esc(f.id)}" style="display:none"></div></div>`;
+  }).join('') + '</div>' : `<div class="empty">Aucun${isSeries ? 'e série' : ' film'}.</div>`);
+  bind();
+  for (const f of list) {
+    scRatingFetch(f.title, f.year, isSeries ? 'series' : 'movie').then(d => {
+      const el = m.querySelector(`[data-pfrating="${f.id}"]`);
+      if (el && d && d.found && d.rating) { el.textContent = '★ ' + d.rating; el.style.display = ''; }
+    }).catch(() => {});
+  }
+  m.querySelectorAll('[data-pfinfo]').forEach(btn => btn.addEventListener('click', e => {
+    e.stopPropagation();
+    const f = list.find(x => x.id === btn.dataset.pfinfo);
+    if (f) openPlatformDetail(f, isSeries);
+  }));
+  m.querySelectorAll('.poster[data-pf]').forEach(p => p.addEventListener('dblclick', e => {
+    if (e.target.closest('[data-pfinfo]')) return;
+    const f = list.find(x => x.id === p.dataset.pf);
+    if (f) togglePlatformItem(f, isSeries);
+  }));
+}
+
 async function renderSC(which) {
   const m = $('#main');
   const title = which === 'releases' ? 'Dernières sorties' : 'Les plus attendus';
+  const isSeries = scShowSeries[which];
+  let topHtml = `<div class="monthfilter"><label><input type="checkbox" id="scSeriesToggle" ${isSeries ? 'checked' : ''}> Série</label>` +
+    (which === 'releases' ? `<label><input type="checkbox" id="scPlatformsToggle" ${releasesPlatforms ? 'checked' : ''}> Sur les plateformes</label>` : '') + '</div>';
+  if (which === 'releases' && releasesPlatforms) { renderPlatforms(m, title, topHtml, isSeries); return; }
   m.innerHTML = `<h2>${title}</h2><div class="empty">Chargement…</div>`;
   let data;
   try { data = await scFetch(); }
   catch { m.innerHTML = `<h2>${title}</h2><div class="empty">SensCritique inaccessible.</div>`; return; }
   if (tab !== which) return;
 
-  const isSeries = scShowSeries[which];
   const bucket = (isSeries ? data.series : data.movies) || {};
   let list = (which === 'releases' ? bucket.releases : bucket.awaited) || [];
 
-  let topHtml = `<div class="monthfilter"><label><input type="checkbox" id="scSeriesToggle" ${isSeries ? 'checked' : ''}> Série</label></div>`;
   if (which === 'awaited') {
     const months = next4Months();
     topHtml += '<div class="monthfilter">' + months.map(mo =>
@@ -675,6 +755,7 @@ async function renderSC(which) {
   }
 
   $('#scSeriesToggle').addEventListener('change', e => { scShowSeries[which] = e.target.checked; renderSC(which); });
+  if (which === 'releases') $('#scPlatformsToggle').addEventListener('change', e => { releasesPlatforms = e.target.checked; renderSC(which); });
 
   if (which === 'awaited') {
     m.querySelectorAll('[data-month]').forEach(cb => {
