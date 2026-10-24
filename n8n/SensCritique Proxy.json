@@ -189,7 +189,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title synopsis rating yearOfProduction actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title url synopsis rating yearOfProduction directors { name } creators { name } actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
         "options": {}
       },
       "id": "s8",
@@ -204,7 +204,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = items[0].json;\nconst p = raw?.data?.product || null;\nif (!p) return [{ json: { error: 'not_found' } }];\nreturn [{ json: {\n  id: String(p.id),\n  title: p.title || '',\n  year: p.yearOfProduction || null,\n  rating: typeof p.rating === 'number' ? p.rating : null,\n  synopsis: p.synopsis || '',\n  actors: (p.actors || []).slice(0, 8).map(a => ({ name: a.name || '', role: a.role || '' })),\n  backdrop: p.medias?.backdrop || p.medias?.picture || '',\n  videoId: (p.medias?.videos && p.medias.videos[0]) ? p.medias.videos[0].id : null\n} }];"
+        "jsCode": "const raw = items[0].json;\nconst p = raw?.data?.product || null;\nif (!p) return [{ json: { error: 'not_found' } }];\nconst names = l => (l || []).map(x => x.name).filter(Boolean);\nconst dirs = names(p.directors).length ? names(p.directors) : names(p.creators);\nreturn [{ json: {\n  id: String(p.id),\n  title: p.title || '',\n  year: p.yearOfProduction || null,\n  rating: typeof p.rating === 'number' ? p.rating : null,\n  url: p.url ? 'https://www.senscritique.com' + p.url : '',\n  directors: dirs,\n  synopsis: p.synopsis || '',\n  actors: (p.actors || []).slice(0, 8).map(a => ({ name: a.name || '', role: a.role || '' })),\n  backdrop: p.medias?.backdrop || p.medias?.picture || '',\n  videoId: (p.medias?.videos && p.medias.videos[0]) ? p.medias.videos[0].id : null\n} }];"
       },
       "id": "s9",
       "name": "Normalize Detail",

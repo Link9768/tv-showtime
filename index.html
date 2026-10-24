@@ -586,9 +586,10 @@ function openScDetail(f, isSeries) {
           <input type="checkbox" id="scDetailAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
         </label>
       </h3>
-      <div class="sub">${rating}</div>
+      <div class="sub">SensCritique ${d.url && rating ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none" title="Ouvrir sur SensCritique">${rating}</a>` : (rating || 'pas encore noté')}</div>
       <div class="sub" id="scOmdbRatings">Notes externes…</div>
       <div>${esc(d.synopsis || 'Pas de synopsis disponible.')}</div>
+      ${d.directors && d.directors.length ? `<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Réalisateur${d.directors.length > 1 ? 's' : ''}</b><br>${d.directors.map(esc).join(', ')}</div>` : ''}
       ${actors}${video}`;
     $('#scDetailAddCheck').addEventListener('change', e => {
       if (isSeries) {
