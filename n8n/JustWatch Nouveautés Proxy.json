@@ -1,0 +1,86 @@
+{
+  "name": "JustWatch Nouveautés Proxy",
+  "nodes": [
+    {
+      "id": "w1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "7d3f2a10-5b4e-4c8a-9f21-3e6b8c1d0a42",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "justwatch-new",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "c1",
+      "name": "Fetch new titles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const query = 'query GetNewTitles($country: Country!, $language: Language!, $first: Int!, $date: Date!, $filter: TitleFilter, $pageType: NewPageType!, $priceDrops: Boolean!, $platform: Platform!) { newTitles(country: $country, date: $date, first: $first, filter: $filter, pageType: $pageType, priceDrops: $priceDrops) { edges { newOffer(platform: $platform) { monetizationType package { clearName } } node { ... on MovieOrSeason { id objectType content(country: $country, language: $language) { title shortDescription posterUrl fullPath originalReleaseYear } } ... on Season { show { id content(country: $country, language: $language) { title posterUrl fullPath } } } } } } }';\nconst img = p => p ? 'https://images.justwatch.com' + p.replace('{profile}', 's276').replace('{format}', 'jpg') : '';\nconst out = { movies: [], series: [] };\nconst seen = new Set();\nfor (let i = 0; i < 7; i++) {\n  const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);\n  let res;\n  try {\n    res = await this.helpers.httpRequest({ method: 'POST', url: 'https://apis.justwatch.com/graphql', json: true, body: { operationName: 'GetNewTitles', query, variables: { country: 'FR', language: 'fr', first: 60, date: d, filter: { packages: ['nfx', 'cpd', 'prv', 'dnp', 'atp', 'mxx'] }, pageType: 'NEW', priceDrops: false, platform: 'WEB' } } });\n  } catch (e) { continue; }\n  for (const e of res?.data?.newTitles?.edges || []) {\n    if (e.newOffer?.monetizationType !== 'FLATRATE') continue;\n    const n = e.node; if (!n?.content) continue;\n    const isSeries = n.objectType === 'SHOW_SEASON';\n    const id = isSeries ? n.show?.id : n.id;\n    if (!id || seen.has(id)) continue;\n    seen.add(id);\n    const item = {\n      id,\n      title: isSeries ? (n.show?.content?.title || '') : n.content.title,\n      season: isSeries ? n.content.title : '',\n      year: n.content.originalReleaseYear || null,\n      poster: img(n.content.posterUrl || n.show?.content?.posterUrl),\n      synopsis: n.content.shortDescription || '',\n      platform: e.newOffer?.package?.clearName || '',\n      date: d,\n      url: n.content.fullPath ? 'https://www.justwatch.com' + n.content.fullPath : ''\n    };\n    (isSeries ? out.series : out.movies).push(item);\n  }\n}\nreturn [{ json: out }];"
+      }
+    },
+    {
+      "id": "r1",
+      "name": "Respond JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Fetch new titles",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch new titles": {
+      "main": [
+        [
+          {
+            "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

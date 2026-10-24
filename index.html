@@ -623,6 +623,8 @@ function openScDetail(f, isSeries) {
 const JW_NEW_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/justwatch-new';
 let jwNewCache = null; // cache mémoire de session
 let releasesPlatforms = false; // case "Sur les plateformes" sur Dernières sorties
+let releasesByRating = false; // case "Mieux notés" : tri par note décroissante (sinon, par date)
+function ratingNum(r) { const n = parseFloat(String(r == null ? '' : r).replace(',', '.')); return isNaN(n) ? -1 : n; }
 async function jwNewFetch() {
   if (!jwNewCache) jwNewCache = fetch(JW_NEW_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json()).catch(e => { jwNewCache = null; throw e; });
   return jwNewCache;
@@ -666,6 +668,7 @@ async function renderPlatforms(m, title, topHtml, isSeries) {
   const bind = () => {
     $('#scSeriesToggle').addEventListener('change', e => { scShowSeries.releases = e.target.checked; renderSC('releases'); });
     $('#scPlatformsToggle').addEventListener('change', e => { releasesPlatforms = e.target.checked; renderSC('releases'); });
+    $('#scRatingSort').addEventListener('change', e => { releasesByRating = e.target.checked; renderSC('releases'); });
   };
   bind();
   let data;
@@ -673,7 +676,12 @@ async function renderPlatforms(m, title, topHtml, isSeries) {
   catch { m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">JustWatch inaccessible.</div>`; bind(); return; }
   if (tab !== 'releases' || !releasesPlatforms) return;
   const minYear = new Date().getFullYear() - 1; // on écarte les vieux titres de catalogue
-  const list = ((isSeries ? data.series : data.movies) || []).filter(f => f.year && f.year >= minYear).slice(0, 60);
+  let list = ((isSeries ? data.series : data.movies) || []).filter(f => f.year && f.year >= minYear).slice(0, 60);
+  if (releasesByRating) {
+    const rs = await Promise.all(list.map(f => scRatingFetch(f.title, f.year, isSeries ? 'series' : 'movie').then(d => d && d.found ? ratingNum(d.rating) : -1).catch(() => -1)));
+    if (tab !== 'releases' || !releasesPlatforms || !releasesByRating) return;
+    list = list.map((f, i) => ({ f, r: rs[i] })).sort((a, b) => b.r - a.r).map(x => x.f);
+  }
   m.innerHTML = `<h2>${title}</h2>${topHtml}` + (list.length ? '<div class="grid">' + list.map(f => {
     const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
@@ -703,7 +711,7 @@ async function renderSC(which) {
   const title = which === 'releases' ? 'Dernières sorties' : 'Les plus attendus';
   const isSeries = scShowSeries[which];
   let topHtml = `<div class="monthfilter"><label><input type="checkbox" id="scSeriesToggle" ${isSeries ? 'checked' : ''}> Série</label>` +
-    (which === 'releases' ? `<label><input type="checkbox" id="scPlatformsToggle" ${releasesPlatforms ? 'checked' : ''}> Sur les plateformes</label>` : '') + '</div>';
+    (which === 'releases' ? `<label><input type="checkbox" id="scPlatformsToggle" ${releasesPlatforms ? 'checked' : ''}> Sur les plateformes</label><label><input type="checkbox" id="scRatingSort" ${releasesByRating ? 'checked' : ''}> Mieux notés</label>` : '') + '</div>';
   if (which === 'releases' && releasesPlatforms) { renderPlatforms(m, title, topHtml, isSeries); return; }
   m.innerHTML = `<h2>${title}</h2><div class="empty">Chargement…</div>`;
   let data;
@@ -713,6 +721,7 @@ async function renderSC(which) {
 
   const bucket = (isSeries ? data.series : data.movies) || {};
   let list = (which === 'releases' ? bucket.releases : bucket.awaited) || [];
+  if (which === 'releases' && releasesByRating) list = [...list].sort((a, b) => ratingNum(b.rating) - ratingNum(a.rating));
 
   if (which === 'awaited') {
     const months = next4Months();
@@ -755,7 +764,10 @@ async function renderSC(which) {
   }
 
   $('#scSeriesToggle').addEventListener('change', e => { scShowSeries[which] = e.target.checked; renderSC(which); });
-  if (which === 'releases') $('#scPlatformsToggle').addEventListener('change', e => { releasesPlatforms = e.target.checked; renderSC(which); });
+  if (which === 'releases') {
+    $('#scPlatformsToggle').addEventListener('change', e => { releasesPlatforms = e.target.checked; renderSC(which); });
+    $('#scRatingSort').addEventListener('change', e => { releasesByRating = e.target.checked; renderSC(which); });
+  }
 
   if (which === 'awaited') {
     m.querySelectorAll('[data-month]').forEach(cb => {
