@@ -39,7 +39,9 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[15], limitPolls:1, limitProductSelections:31, limitRelease:18, limitReviews:1, universe:\\\"movie\\\") { newRelease { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
-        "options": {}
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "s2",
       "name": "Query GraphQL",
@@ -49,7 +51,13 @@
         224,
         0
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SvnNZgHO05QApH3e",
+          "name": "SensCritique Jeton"
+        }
+      }
     },
     {
       "parameters": {
@@ -71,7 +79,9 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[5,23], limitPolls:1, limitProductSelections:31, limitReviews:1, universe:\\\"tvShow\\\") { selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
-        "options": {}
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "s6",
       "name": "Query GraphQL Series",
@@ -81,7 +91,13 @@
         336,
         0
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SvnNZgHO05QApH3e",
+          "name": "SensCritique Jeton"
+        }
+      }
     },
     {
       "parameters": {
@@ -190,7 +206,9 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title url synopsis rating scoutsAverage { average count } yearOfProduction directors { name } creators { name } actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
-        "options": {}
+        "options": {},
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth"
       },
       "id": "s8",
       "name": "Query Detail",
@@ -200,7 +218,13 @@
         224,
         240
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "SvnNZgHO05QApH3e",
+          "name": "SensCritique Jeton"
+        }
+      }
     },
     {
       "parameters": {
