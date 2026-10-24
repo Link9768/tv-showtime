@@ -38,7 +38,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[15], limitPolls:1, limitProductSelections:31, limitRelease:18, limitReviews:1, universe:\\\"movie\\\") { newRelease { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[15], limitPolls:1, limitProductSelections:31, limitRelease:18, limitReviews:1, universe:\\\"movie\\\") { newRelease { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
         "options": {}
       },
       "id": "s2",
@@ -70,7 +70,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[5,23], limitPolls:1, limitProductSelections:31, limitReviews:1, universe:\\\"tvShow\\\") { selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: \"query { homepageUniverses(idsSelection:[5,23], limitPolls:1, limitProductSelections:31, limitReviews:1, universe:\\\"tvShow\\\") { selections { id label products { id title rating yearOfProduction url stats { wishCount ratingCount } scoutsAverage { average count } medias(backdropSize:\\\"1200\\\") { picture } } } } }\" }) }}",
         "options": {}
       },
       "id": "s6",
@@ -117,7 +117,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const movieRaw = $('Query GraphQL').item.json;\nconst seriesRaw = $('Query GraphQL Series').item.json;\nconst movieUni = movieRaw?.data?.homepageUniverses || {};\nconst seriesUni = seriesRaw?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : ''\n  };\n}\n\nconst movieReleases = (movieUni.newRelease || []).map(mapProduct);\nconst movieAwaitedSel = (movieUni.selections || []).find(s => s.label === 'film_attendu');\nlet movieAwaited = (movieAwaitedSel?.products || []).map(mapProduct);\n\nconst seriesReleasesSel = (seriesUni.selections || []).find(s => s.label === 'nouvelle_serie');\nconst seriesReleases = (seriesReleasesSel?.products || []).map(mapProduct);\nconst seriesAwaitedSel = (seriesUni.selections || []).find(s => s.label === 'serie_attendue');\nlet seriesAwaited = (seriesAwaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || p.frenchReleaseDate || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nfunction attachDatesAndFilter(list) {\n  return list.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n    .filter(f => !f.releaseDate || f.releaseDate >= today);\n}\nmovieAwaited = attachDatesAndFilter(movieAwaited);\nseriesAwaited = attachDatesAndFilter(seriesAwaited);\n\nreturn [{ json: {\n  movies: { releases: movieReleases, awaited: movieAwaited },\n  series: { releases: seriesReleases, awaited: seriesAwaited },\n  fetchedAt: new Date().toISOString()\n} }];"
+        "jsCode": "const movieRaw = $('Query GraphQL').item.json;\nconst seriesRaw = $('Query GraphQL Series').item.json;\nconst movieUni = movieRaw?.data?.homepageUniverses || {};\nconst seriesUni = seriesRaw?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : '',\n    scouts: p.scoutsAverage?.average ?? null,\n    scoutsCount: p.scoutsAverage?.count ?? 0\n  };\n}\n\nconst movieReleases = (movieUni.newRelease || []).map(mapProduct);\nconst movieAwaitedSel = (movieUni.selections || []).find(s => s.label === 'film_attendu');\nlet movieAwaited = (movieAwaitedSel?.products || []).map(mapProduct);\n\nconst seriesReleasesSel = (seriesUni.selections || []).find(s => s.label === 'nouvelle_serie');\nconst seriesReleases = (seriesReleasesSel?.products || []).map(mapProduct);\nconst seriesAwaitedSel = (seriesUni.selections || []).find(s => s.label === 'serie_attendue');\nlet seriesAwaited = (seriesAwaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || p.frenchReleaseDate || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nfunction attachDatesAndFilter(list) {\n  return list.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n    .filter(f => !f.releaseDate || f.releaseDate >= today);\n}\nmovieAwaited = attachDatesAndFilter(movieAwaited);\nseriesAwaited = attachDatesAndFilter(seriesAwaited);\n\nreturn [{ json: {\n  movies: { releases: movieReleases, awaited: movieAwaited },\n  series: { releases: seriesReleases, awaited: seriesAwaited },\n  fetchedAt: new Date().toISOString()\n} }];"
       },
       "id": "s3",
       "name": "Normalize results",
@@ -189,7 +189,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title url synopsis rating yearOfProduction directors { name } creators { name } actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title url synopsis rating scoutsAverage { average count } yearOfProduction directors { name } creators { name } actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
         "options": {}
       },
       "id": "s8",
@@ -204,7 +204,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = items[0].json;\nconst p = raw?.data?.product || null;\nif (!p) return [{ json: { error: 'not_found' } }];\nconst names = l => (l || []).map(x => x.name).filter(Boolean);\nconst dirs = names(p.directors).length ? names(p.directors) : names(p.creators);\nreturn [{ json: {\n  id: String(p.id),\n  title: p.title || '',\n  year: p.yearOfProduction || null,\n  rating: typeof p.rating === 'number' ? p.rating : null,\n  url: p.url ? 'https://www.senscritique.com' + p.url : '',\n  directors: dirs,\n  synopsis: p.synopsis || '',\n  actors: (p.actors || []).slice(0, 8).map(a => ({ name: a.name || '', role: a.role || '' })),\n  backdrop: p.medias?.backdrop || p.medias?.picture || '',\n  videoId: (p.medias?.videos && p.medias.videos[0]) ? p.medias.videos[0].id : null\n} }];"
+        "jsCode": "const raw = items[0].json;\nconst p = raw?.data?.product || null;\nif (!p) return [{ json: { error: 'not_found' } }];\nconst names = l => (l || []).map(x => x.name).filter(Boolean);\nconst dirs = names(p.directors).length ? names(p.directors) : names(p.creators);\nreturn [{ json: {\n  id: String(p.id),\n  title: p.title || '',\n  year: p.yearOfProduction || null,\n  rating: typeof p.rating === 'number' ? p.rating : null,\n  url: p.url ? 'https://www.senscritique.com' + p.url : '',\n  directors: dirs,\n  scouts: p.scoutsAverage?.average ?? null,\n  scoutsCount: p.scoutsAverage?.count ?? 0,\n  synopsis: p.synopsis || '',\n  actors: (p.actors || []).slice(0, 8).map(a => ({ name: a.name || '', role: a.role || '' })),\n  backdrop: p.medias?.backdrop || p.medias?.picture || '',\n  videoId: (p.medias?.videos && p.medias.videos[0]) ? p.medias.videos[0].id : null\n} }];"
       },
       "id": "s9",
       "name": "Normalize Detail",

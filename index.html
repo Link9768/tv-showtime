@@ -197,7 +197,7 @@ function omdbRatingsHtml(d) {
   if (d.metacritic) parts.push('Metacritic ' + esc(d.metacritic));
   return parts.length ? `<div class="sub">${parts.join(' · ')}</div>` : '<div class="sub">Notes externes indisponibles.</div>';
 }
-const SC_CACHE_VERSION = 3; // incrementer si le format des donnees renvoyees par le proxy change
+const SC_CACHE_VERSION = 4; // incrementer si le format des donnees renvoyees par le proxy change
 async function scFetch() {
   const cached = JSON.parse(localStorage.getItem('scCache') || 'null');
   if (cached && cached.v === SC_CACHE_VERSION && Date.now() - cached.ts < 6 * 3600e3) return cached.data;
@@ -587,6 +587,7 @@ function openScDetail(f, isSeries) {
         </label>
       </h3>
       <div class="sub">SensCritique ${d.url && rating ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none" title="Ouvrir sur SensCritique">${rating}</a>` : (rating || 'pas encore noté')}</div>
+      ${d.scouts != null ? `<div class="sub">Mes éclaireurs 👥 ★ ${esc(d.scouts)} (${esc(d.scoutsCount)} note${d.scoutsCount > 1 ? 's' : ''})</div>` : ''}
       <div class="sub" id="scOmdbRatings">Notes externes…</div>
       <div>${esc(d.synopsis || 'Pas de synopsis disponible.')}</div>
       ${d.directors && d.directors.length ? `<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Réalisateur${d.directors.length > 1 ? 's' : ''}</b><br>${d.directors.map(esc).join(', ')}</div>` : ''}
@@ -736,9 +737,10 @@ async function renderSC(which) {
 
   function posterHtml(f) {
     const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
+    const scouts = f.scouts != null ? ` · 👥 ${f.scouts}` : ''; // moyenne de mes éclaireurs
     const badge = which === 'awaited'
-      ? `<div class="badge">❤ ${f.wishCount}</div>`
-      : (f.rating ? `<div class="badge">★ ${f.rating}</div>` : '');
+      ? `<div class="badge">❤ ${f.wishCount}${scouts}</div>`
+      : (f.rating || scouts ? `<div class="badge">${f.rating ? '★ ' + f.rating : ''}${f.rating ? scouts : scouts.slice(3)}</div>` : '');
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
     const dateLine = f.releaseDate ? `<div class="reldate">${formatDateFr(f.releaseDate)}</div>` : '';
     return `<div class="poster" data-sc="${f.id}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button></div>${dateLine}${badge}</div>`;
