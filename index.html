@@ -50,6 +50,8 @@
   .title-check input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
   /* à venir */
   .up{display:flex;flex-direction:column;gap:12px}
+  .row[data-show],.row[data-movie]{cursor:pointer}
+  .row[data-show]:hover,.row[data-movie]:hover{border-color:var(--accent)}
   .row{display:flex;align-items:center;gap:16px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
   .thumb{width:44px;height:62px;border-radius:6px;flex:none;object-fit:cover;background:var(--panel)}
   .info{flex:1;min-width:0}
@@ -397,7 +399,24 @@ function openMoviePreview(f) {
   });
 }
 
-/* ---- modal saisons ---- */
+/* ---- fiche détaillée (synopsis, réalisateur, acteurs, bande-annonce) ---- */
+// remplit [data-fiche] de root avec la fiche SensCritique retrouvée par titre ; repli : fallback() (promesse de texte). Rien si aucune donnée.
+async function fillFiche(root, title, year, type, fallback) {
+  let d = null;
+  try { const r = await scRatingFetch(title, year, type); if (r && r.found && r.id) d = await scFetchDetail(r.id); } catch {}
+  let syn = (d && d.synopsis) || '';
+  if (!syn && fallback) { try { syn = await fallback(); } catch {} }
+  const target = root.querySelector('[data-fiche]');
+  if (!target) return;
+  const dirs = d && d.directors && d.directors.length
+    ? `<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Réalisateur${d.directors.length > 1 ? 's' : ''}</b><br>${d.directors.map(esc).join(', ')}</div>` : '';
+  const actors = d && d.actors && d.actors.length
+    ? '<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Acteurs</b><br>' + d.actors.map(a => esc(a.name) + (a.role ? ' — ' + esc(a.role) : '')).join('<br>') + '</div>' : '';
+  const video = d && d.videoId ? `<div style="margin-top:16px;aspect-ratio:16/9"><iframe src="https://www.youtube.com/embed/${esc(d.videoId)}" style="width:100%;height:100%;border:0;border-radius:10px" allowfullscreen></iframe></div>` : '';
+  target.innerHTML = (syn ? `<div>${esc(syn)}</div>` : '') + dirs + actors + video;
+}
+
+/* ---- modal série : fiche + où regarder + saisons ---- */
 function openShow(id) {
   const s = shows.find(x => x.id === id);
   const c = epCache[id];
@@ -406,15 +425,18 @@ function openShow(id) {
   const nums = Object.keys(c.seasons).map(Number).sort((a,b) => a - b);
   const div = document.createElement('div');
   div.className = 'overlay';
-  div.innerHTML = `<div class="modal"><button class="close">✕</button><h3>${esc(s.name)}</h3>
+  const fromUp = tab === 'up'; // depuis À venir : le bouton Où regarder n'apparaît que si la série est disponible
+  const img = s.image ? `<img src="${esc(s.image)}" alt="" style="width:100%;border-radius:10px;margin-bottom:16px;max-width:200px">` : '';
+  div.innerHTML = `<div class="modal"><button class="close">✕</button>${img}<h3>${esc(s.name)}</h3>
     <div class="sub" data-sc-rating>SensCritique…</div>
-    <button class="prov-back" data-where>📺 Où regarder</button>
+    <div class="sub" id="showOmdb">Notes externes…</div>
+    <button class="prov-back" data-where ${fromUp ? 'style="display:none"' : ''}>📺 Où regarder</button>
     <div class="sub">Coche une saison = toute la saison vue</div>` +
     nums.map(n => {
       const sn = c.seasons[n];
       return `<div class="season"><button class="circle ${w.includes(n) ? 'on' : ''}" data-s="${n}">${w.includes(n) ? '✓' : ''}</button>
         <div class="sn">Saison ${n}</div><div class="se">${sn.eps} ép. · ${Math.round(sn.minutes/60)} h</div></div>`;
-    }).join('') + '</div>';
+    }).join('') + '<div data-fiche style="margin-top:18px"></div></div>';
   div.addEventListener('click', e => {
     if (e.target === div || e.target.closest('.close')) { div.remove(); render(); return; }
     if (e.target.closest('[data-where]')) { div.remove(); goWhere(s.name, '', 'SHOW'); return; }
@@ -428,6 +450,15 @@ function openShow(id) {
   });
   document.body.appendChild(div);
   fillScRating(div, s.name, '', 'series');
+  const tv = fetch(`${API}/shows/${id}`).then(r => r.json()).catch(() => null);
+  fillFiche(div, s.name, '', 'series', async () => { const sh = await tv; return sh ? stripHtml(sh.summary) : ''; });
+  tv.then(sh => omdbFetch(sh?.externals?.imdb ? { imdbId: sh.externals.imdb } : { title: s.name, year: '', type: 'series' })).then(od => {
+    const el = div.querySelector('#showOmdb'); if (el) el.outerHTML = omdbRatingsHtml(od);
+  }).catch(() => { const el = div.querySelector('#showOmdb'); if (el) el.outerHTML = omdbRatingsHtml(null); });
+  if (fromUp) jwFindHit(s.name, '', 'SHOW').then(hit => {
+    const b = div.querySelector('[data-where]');
+    if (b && hit && hit.offers?.FLATRATE?.length) b.style.display = '';
+  }).catch(() => {});
 }
 
 /* ---- rendu ---- */
@@ -500,12 +531,12 @@ function render() {
       if (!list.length) continue;
       any = true;
       html += `<div class="datehdr">${label}</div>` + list.map(x => x.kind === 'show' ? `
-        <div class="row">
+        <div class="row" data-show="${x.s.id}">
           ${x.s.image ? `<img class="thumb" src="${x.s.image}" alt="">` : '<div class="thumb"></div>'}
           <div class="info"><div class="show">${esc(x.s.name)}</div><div class="ep">${epCode(x.next)}${x.next.name ? ' — « ' + esc(x.next.name) + ' »' : ''}</div></div>
           <div class="count ${cls}"><b>${x.d === 0 ? 'Ce soir' : countLabel(x.d)}</b><small>${fmtDate(x.next.airdate)}</small></div>
         </div>` : `
-        <div class="row">
+        <div class="row" data-movie="${esc(x.mv.id)}">
           ${x.mv.poster ? `<img class="thumb" src="${esc(x.mv.poster)}" alt="">` : '<div class="thumb"></div>'}
           <div class="info"><div class="show">${esc(x.mv.title)}</div><div class="ep">Film${x.mv.year ? ' · ' + x.mv.year : ''}</div></div>
           <div class="count ${cls}"><b>${x.d === 0 ? "Aujourd'hui" : countLabel(x.d)}</b><small>${fmtDate(x.mv.releaseDate)}</small></div>
@@ -514,6 +545,11 @@ function render() {
     if (!any) html += `<div class="empty">${upShowMovies ? 'Aucun film à venir parmi tes films ajoutés.' : 'Rien à venir.'}</div>`;
     m.innerHTML = html + '</div>';
     $('#upShowMovies').addEventListener('change', e => { upShowMovies = e.target.checked; render(); });
+    m.querySelectorAll('.row[data-show]').forEach(r => r.addEventListener('click', () => openShow(+r.dataset.show)));
+    m.querySelectorAll('.row[data-movie]').forEach(r => r.addEventListener('click', () => {
+      const mv = movies.find(x => x.id === r.dataset.movie);
+      if (mv) openProvidersForTitle(mv.title, mv.year, 'MOVIE');
+    }));
   }
 }
 /* ---- stats ---- */
@@ -915,7 +951,10 @@ function renderMovies() {
 /* ---- où regarder ---- */
 let whereQuery = ''; // dernière recherche de l'onglet Où regarder (conservée au retour)
 // raccourci depuis Films / Mes séries : bascule sur Où regarder et affiche directement les plateformes
+let whereFrom = null; // onglet d'où l'on vient (Retour y ramène au lieu de rester sur Où regarder)
+function backFromProviders() { if (whereFrom) { tab = whereFrom; whereFrom = null; } render(); }
 function goWhere(title, year, type) {
+  if (tab !== 'where') whereFrom = tab;
   tab = 'where'; whereQuery = title;
   render();
   openProvidersForTitle(title, year, type);
@@ -957,18 +996,21 @@ function renderWhere() {
   });
 }
 
+async function jwFindHit(title, year, type) {
+  const results = await jwSearch(title);
+  const sameTitle = results.filter(r => r.title.toLowerCase() === title.toLowerCase() && (!type || r.type === type));
+  // plusieurs films peuvent partager le meme titre (ex: remakes) : on prefere celui dont l'annee correspond
+  return (year && sameTitle.find(r => String(r.year) === String(year))) || sameTitle[0] || results[0] || null;
+}
 async function openProvidersForTitle(title, year, type) {
   const m = $('#main');
   m.innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Chargement…</div>';
-  $('#provBack').onclick = () => render();
+  $('#provBack').onclick = backFromProviders;
   try {
-    const results = await jwSearch(title);
-    const sameTitle = results.filter(r => r.title.toLowerCase() === title.toLowerCase() && (!type || r.type === type));
-    // plusieurs films peuvent partager le meme titre (ex: remakes) : on prefere celui dont l'annee correspond
-    const hit = (year && sameTitle.find(r => String(r.year) === String(year))) || sameTitle[0] || results[0];
+    const hit = await jwFindHit(title, year, type);
     if (!hit) { $('#main').innerHTML += '<div class="empty">Aucune information disponible.</div>'; return; }
     renderProviders(hit);
-  } catch { $('#main').innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Erreur de recherche.</div>'; $('#provBack').onclick = () => render(); }
+  } catch { $('#main').innerHTML = '<button class="prov-back" id="provBack">← Retour</button><div class="empty">Erreur de recherche.</div>'; $('#provBack').onclick = backFromProviders; }
 }
 
 function renderProviders(hit) {
@@ -990,10 +1032,14 @@ function renderProviders(hit) {
       '</div></div>';
   }
   if (!any) html += '<div class="empty">Pas d\'offre d\'abonnement trouvée en France pour ce titre.</div>';
-  $('#main').innerHTML = html + '</div>';
-  $('#provBack').onclick = () => render();
+  $('#main').innerHTML = html + '<div data-fiche style="margin-top:18px"></div></div>';
+  $('#provBack').onclick = backFromProviders;
   if ($('#provGoWhere')) $('#provGoWhere').onclick = e => { e.preventDefault(); goWhere(hit.title, hit.year, hit.type); };
   fillScRating($('#main'), hit.title, hit.year, hit.type === 'MOVIE' ? 'movie' : 'series');
+  fillFiche($('#main'), hit.title, hit.year, hit.type === 'MOVIE' ? 'movie' : 'series', async () => {
+    const od = await omdbFetch({ title: hit.title, year: hit.year || '', type: hit.type === 'MOVIE' ? 'movie' : 'series' });
+    return (od && od.plot) || '';
+  });
   omdbFetch({ title: hit.title, year: hit.year || '', type: hit.type === 'MOVIE' ? 'movie' : 'series' }).then(od => {
     const el = $('#provOmdbRatings');
     if (el) el.outerHTML = omdbRatingsHtml(od);
@@ -1059,7 +1105,7 @@ $('#tabMovies').onclick = () => { tab = 'movies'; render(); };
 $('#tabUp').onclick = () => { tab = 'up'; render(); };
 $('#tabReleases').onclick = () => { tab = 'releases'; render(); };
 $('#tabAwaited').onclick = () => { tab = 'awaited'; render(); };
-$('#tabWhere').onclick = () => { tab = 'where'; render(); };
+$('#tabWhere').onclick = () => { tab = 'where'; whereFrom = null; render(); };
 $('#tabStat').onclick = () => { tab = 'stat'; render(); };
 
 /* ---- import historique TV Time (tracking-prod-records*.csv) ---- */
