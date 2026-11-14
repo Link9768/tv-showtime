@@ -885,8 +885,7 @@ function renderMovies() {
     m.querySelectorAll('.poster[data-movie]').forEach(p => {
       const ok = p.dataset.name.includes(q)
         && (!moviesFilter.recent || p.dataset.recent === '1')
-        && (!moviesFilter.notSeen || p.dataset.notseen === '1')
-        && (!moviesFilter.seen || p.dataset.notseen === '0');
+        && (moviesFilter.seen ? p.dataset.notseen === '0' : p.dataset.notseen === '1');
       p.style.display = ok ? '' : 'none';
     });
   };
