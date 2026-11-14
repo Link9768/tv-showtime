@@ -2,13 +2,6 @@
   "name": "Stremio Add",
   "nodes": [
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "stremio-add",
-        "authentication": "headerAuth",
-        "responseMode": "responseNode",
-        "options": {}
-      },
       "id": "sa1",
       "name": "Webhook Stremio Add",
       "type": "n8n-nodes-base.webhook",
@@ -24,12 +17,16 @@
           "name": "Stremio Sync Key"
         }
       },
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stremio-add",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
       "onError": "continueRegularOutput"
     },
     {
-      "parameters": {
-        "jsCode": "const b = $input.first().json.body || {};\nconst type = (b.type === 'series' || b.type === 'tv') ? 'series' : 'movie';\nconst id = String(b.imdbId || '').trim();\nconst title = String(b.title || '').trim();\nconst hasId = /^tt[0-9]+$/.test(id);\nconst url = hasId\n  ? 'https://v3-cinemeta.strem.io/meta/' + type + '/' + id + '.json'\n  : 'https://v3-cinemeta.strem.io/catalog/' + type + '/top/search=' + encodeURIComponent(title) + '.json';\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst q = title.toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9 ]+/g, ' ').trim().replace(/ +/g, '_');\nreturn [{ json: { type, id: hasId ? id : '', title, year: String(b.year || ''), url, q, q0: q.charAt(0) || 'a', valid: hasId || title.length > 0 } }];"
-      },
       "id": "sa2",
       "name": "Prepare",
       "type": "n8n-nodes-base.code",
@@ -37,14 +34,12 @@
       "position": [
         224,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || {};\nconst type = (b.type === 'series' || b.type === 'tv') ? 'series' : 'movie';\nconst id = String(b.imdbId || '').trim();\nconst title = String(b.title || '').trim();\nconst hasId = /^tt[0-9]+$/.test(id);\nconst url = hasId\n  ? 'https://v3-cinemeta.strem.io/meta/' + type + '/' + id + '.json'\n  : 'https://v3-cinemeta.strem.io/catalog/' + type + '/top/search=' + encodeURIComponent(title) + '.json';\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst q = title.toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9 ]+/g, ' ').trim().replace(/ +/g, '_');\nreturn [{ json: { type, id: hasId ? id : '', title, year: String(b.year || ''), url, q, q0: q.charAt(0) || 'a', valid: hasId || title.length > 0 } }];"
+      }
     },
     {
-      "parameters": {
-        "method": "GET",
-        "url": "={{ $json.url }}",
-        "options": {}
-      },
       "id": "sa3",
       "name": "Cinemeta",
       "type": "n8n-nodes-base.httpRequest",
@@ -53,12 +48,14 @@
         448,
         0
       ],
-      "onError": "continueRegularOutput"
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.url }}",
+        "options": {}
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const p = $('Prepare').first().json;\nconst r = $input.first().json || {};\nif (!p.valid) return [{ json: { found: false } }];\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9]+/g, ' ').trim();\nlet meta = null;\nif (r.meta && r.meta.id) meta = r.meta;\nelse if (Array.isArray(r.metas)) {\n  const ty = norm(p.title);\n  const y = parseInt(p.year, 10);\n  const yr = m => parseInt(String(m.year || m.releaseInfo || '').slice(0, 4), 10);\n  const c = r.metas;\n  const near = m => !y || Math.abs(yr(m) - y) <= 1;\n  meta = c.find(m => norm(m.name) === ty && near(m))\n    || (y ? c.find(m => near(m) && (norm(m.name).indexOf(ty) === 0 || ty.indexOf(norm(m.name)) === 0)) : null);\n}\nif (!meta || !/^tt[0-9]+$/.test(String(meta.id))) return [{ json: { found: false } }];\nconst now = new Date().toISOString();\nconst item = {\n  _id: meta.id,\n  name: meta.name,\n  type: p.type,\n  poster: meta.poster || ('https://images.metahub.space/poster/medium/' + meta.id + '/img'),\n  posterShape: 'poster',\n  removed: false,\n  temp: false,\n  _ctime: now,\n  _mtime: now,\n  state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: meta.id, watched: '', noNotif: false, season: 0, episode: 0 },\n  year: String(meta.year || meta.releaseInfo || '').slice(0, 4)\n};\nreturn [{ json: { found: true, id: meta.id, name: meta.name, changes: [item] } }];"
-      },
       "id": "sa4",
       "name": "Pick Match",
       "type": "n8n-nodes-base.code",
@@ -66,9 +63,20 @@
       "position": [
         672,
         0
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const p = $('Prepare').first().json;\nconst r = $input.first().json || {};\nif (!p.valid) return [{ json: { found: false } }];\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9]+/g, ' ').trim();\nlet meta = null;\nif (r.meta && r.meta.id) meta = r.meta;\nelse if (Array.isArray(r.metas)) {\n  const ty = norm(p.title);\n  const y = parseInt(p.year, 10);\n  const yr = m => parseInt(String(m.year || m.releaseInfo || '').slice(0, 4), 10);\n  const c = r.metas;\n  const near = m => !y || Math.abs(yr(m) - y) <= 1;\n  meta = c.find(m => norm(m.name) === ty && near(m))\n    || (y ? c.find(m => near(m) && (norm(m.name).indexOf(ty) === 0 || ty.indexOf(norm(m.name)) === 0)) : null);\n}\nif (!meta || !/^tt[0-9]+$/.test(String(meta.id))) return [{ json: { found: false } }];\nconst now = new Date().toISOString();\nconst item = {\n  _id: meta.id,\n  name: meta.name,\n  type: p.type,\n  poster: meta.poster || ('https://images.metahub.space/poster/medium/' + meta.id + '/img'),\n  posterShape: 'poster',\n  removed: false,\n  temp: false,\n  _ctime: now,\n  _mtime: now,\n  state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: meta.id, watched: '', noNotif: false, season: 0, episode: 0 },\n  year: String(meta.year || meta.releaseInfo || '').slice(0, 4)\n};\nreturn [{ json: { found: true, id: meta.id, name: meta.name, changes: [item] } }];"
+      }
     },
     {
+      "id": "sa5",
+      "name": "Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        0
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -92,27 +100,9 @@
           "combinator": "and"
         },
         "options": {}
-      },
-      "id": "sa5",
-      "name": "Found?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        896,
-        0
-      ]
+      }
     },
     {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.strem.io/api/datastorePut",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpCustomAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ { collection: 'libraryItem', changes: $json.changes } }}",
-        "options": {}
-      },
       "id": "sa6",
       "name": "Put Library",
       "type": "n8n-nodes-base.httpRequest",
@@ -125,11 +115,29 @@
       "credentials": {
         "httpCustomAuth": {
           "id": "7Vr61fmQJ3QV3ZpZ",
-          "name": "Stremio authKey"
+          "name": "Stremio authKey."
         }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.strem.io/api/datastorePut",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { collection: 'libraryItem', changes: $json.changes } }}",
+        "options": {}
       }
     },
     {
+      "id": "sa7",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        1792,
+        -100
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ $json }}",
@@ -143,17 +151,17 @@
             ]
           }
         }
-      },
-      "id": "sa7",
-      "name": "Respond OK",
+      }
+    },
+    {
+      "id": "sa8",
+      "name": "Respond Not Found",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
       "position": [
         1792,
-        -100
-      ]
-    },
-    {
+        300
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ { ok: false, error: 'not_found' } }}",
@@ -167,17 +175,17 @@
             ]
           }
         }
-      },
-      "id": "sa8",
-      "name": "Respond Not Found",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        1792,
-        300
-      ]
+      }
     },
     {
+      "id": "sa9",
+      "name": "IMDb Suggest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        100
+      ],
       "parameters": {
         "method": "GET",
         "url": "={{ 'https://v3.sg.media-imdb.com/suggestion/' + $('Prepare').first().json.q0 + '/' + encodeURIComponent($('Prepare').first().json.q) + '.json' }}",
@@ -192,20 +200,9 @@
         },
         "options": {}
       },
-      "id": "sa9",
-      "name": "IMDb Suggest",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        1120,
-        100
-      ],
       "onError": "continueRegularOutput"
     },
     {
-      "parameters": {
-        "jsCode": "const p = $('Prepare').first().json;\nconst r = $input.first().json || {};\nconst y = parseInt(p.year, 10);\nif (!p.valid || !y || !p.q) return [{ json: { found: false } }];\nconst okType = p.type === 'series' ? ['tvSeries', 'tvMiniSeries'] : ['movie', 'tvMovie'];\nconst list = Array.isArray(r.d) ? r.d : [];\nconst hit = list.find(x => /^tt[0-9]+$/.test(String(x.id)) && okType.indexOf(x.qid) >= 0 && x.y === y);\nif (!hit) return [{ json: { found: false } }];\nconst now = new Date().toISOString();\nconst item = {\n  _id: hit.id,\n  name: hit.l,\n  type: p.type,\n  poster: 'https://images.metahub.space/poster/medium/' + hit.id + '/img',\n  posterShape: 'poster',\n  removed: false,\n  temp: false,\n  _ctime: now,\n  _mtime: now,\n  state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: hit.id, watched: '', noNotif: false, season: 0, episode: 0 },\n  year: String(hit.y)\n};\nreturn [{ json: { found: true, id: hit.id, name: hit.l, changes: [item] } }];"
-      },
       "id": "sa10",
       "name": "Pick IMDb",
       "type": "n8n-nodes-base.code",
@@ -213,9 +210,20 @@
       "position": [
         1344,
         100
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const p = $('Prepare').first().json;\nconst r = $input.first().json || {};\nconst y = parseInt(p.year, 10);\nif (!p.valid || !y || !p.q) return [{ json: { found: false } }];\nconst okType = p.type === 'series' ? ['tvSeries', 'tvMiniSeries'] : ['movie', 'tvMovie'];\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst norm = s => String(s || '').toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9]+/g, ' ').trim();\nconst UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';\nconst get = async u => this.helpers.httpRequest({ url: u, json: true, headers: { 'User-Agent': UA } });\nconst pickImdb = list => (Array.isArray(list) ? list : []).find(x => /^tt[0-9]+$/.test(String(x.id)) && okType.indexOf(x.qid) >= 0 && x.y === y);\nlet hit = pickImdb(r.d);\nlet orig = '';\nif (!hit) {\n  // titre original (souvent anglais) via SensCritique, puis nouvelle recherche IMDb / Cinemeta\n  try {\n    const gq = 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { title originalTitle dateRelease dateReleaseOriginal yearOfProduction universe } } } }';\n    const sc = await this.helpers.httpRequest({ method: 'POST', url: 'https://apollo.senscritique.com/', json: true, headers: { 'Content-Type': 'application/json', 'User-Agent': UA }, body: { operationName: 'SearchAutocomplete', variables: { keywords: p.title, universe: null, limit: 15 }, query: gq } });\n    const items = (sc && sc.data && sc.data.searchAutocomplete && sc.data.searchAutocomplete.items) || [];\n    const uni = p.type === 'series' ? 4 : 1;\n    const yp = pr => parseInt(String(pr.yearOfProduction || pr.dateRelease || pr.dateReleaseOriginal || '').slice(0, 4), 10);\n    const m = items.map(i => i && i.product).find(pr => pr && pr.universe === uni && pr.originalTitle && norm(pr.title) === norm(p.title) && Math.abs(yp(pr) - y) <= 1);\n    if (m && norm(m.originalTitle) !== norm(p.title)) orig = m.originalTitle;\n  } catch (e) {}\n  if (orig) {\n    const s = norm(orig).replace(/ +/g, '_');\n    try { const r2 = await get('https://v3.sg.media-imdb.com/suggestion/' + (s.charAt(0) || 'a') + '/' + encodeURIComponent(s) + '.json'); hit = pickImdb(r2.d); } catch (e) {}\n    if (!hit) {\n      try {\n        const r3 = await get('https://v3-cinemeta.strem.io/catalog/' + p.type + '/top/search=' + encodeURIComponent(orig) + '.json');\n        const no = norm(orig);\n        const yr = m => parseInt(String(m.year || m.releaseInfo || '').slice(0, 4), 10);\n        const c = (r3.metas || []).find(m => /^tt[0-9]+$/.test(String(m.id)) && norm(m.name) === no && Math.abs(yr(m) - y) <= 1);\n        if (c) hit = { id: c.id, l: c.name, y: yr(c), poster: c.poster };\n      } catch (e) {}\n    }\n  }\n}\nif (!hit) return [{ json: { found: false, orig } }];\nconst now = new Date().toISOString();\nconst item = {\n  _id: hit.id,\n  name: hit.l,\n  type: p.type,\n  poster: hit.poster || ('https://images.metahub.space/poster/medium/' + hit.id + '/img'),\n  posterShape: 'poster',\n  removed: false,\n  temp: false,\n  _ctime: now,\n  _mtime: now,\n  state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: hit.id, watched: '', noNotif: false, season: 0, episode: 0 },\n  year: String(hit.y)\n};\nreturn [{ json: { found: true, id: hit.id, name: hit.l, changes: [item] } }];"
+      }
     },
     {
+      "id": "sa11",
+      "name": "Found IMDb?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        100
+      ],
       "parameters": {
         "conditions": {
           "options": {
@@ -239,20 +247,9 @@
           "combinator": "and"
         },
         "options": {}
-      },
-      "id": "sa11",
-      "name": "Found IMDb?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1568,
-        100
-      ]
+      }
     },
     {
-      "parameters": {
-        "jsCode": "const put = $input.first().json || {};\nlet info = null;\ntry { const t = $('Pick IMDb').first().json; if (t && t.found) info = t; } catch (e) {}\nif (!info) info = $('Pick Match').first().json;\nreturn [{ json: { ok: !!(put.result && put.result.success === true), id: info.id, name: info.name } }];"
-      },
       "id": "sa12",
       "name": "Build Reply",
       "type": "n8n-nodes-base.code",
@@ -260,10 +257,13 @@
       "position": [
         1568,
         -100
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const put = $input.first().json || {};\nlet info = null;\ntry { const t = $('Pick IMDb').first().json; if (t && t.found) info = t; } catch (e) {}\nif (!info) info = $('Pick Match').first().json;\nreturn [{ json: { ok: !!(put.result && put.result.success === true), id: info.id, name: info.name } }];"
+      }
     }
   ],
-  "pinData": {},
+  "pinData": null,
   "connections": {
     "Webhook Stremio Add": {
       "main": [
@@ -327,17 +327,6 @@
         ]
       ]
     },
-    "Put Library": {
-      "main": [
-        [
-          {
-            "node": "Build Reply",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "IMDb Suggest": {
       "main": [
         [
@@ -378,6 +367,17 @@
         ]
       ]
     },
+    "Put Library": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Build Reply": {
       "main": [
         [
@@ -392,7 +392,9 @@
   },
   "active": true,
   "settings": {
-    "executionOrder": "v1"
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
   },
   "id": "38McWSNQRqSe86FV",
   "tags": []
