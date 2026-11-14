@@ -132,6 +132,7 @@
     <input id="q" type="search" placeholder="🔍 Chercher une série…" autocomplete="off">
     <div class="results" id="results"></div>
   </div>
+  <button id="sauvBtn" title="Sauvegarde sur Google Drive" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">☁ Sauvegarde</button>
   <button id="exportBtn" title="Exporter mes données (sauvegarde)" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">⬇ Export</button>
   <button id="importBtn" title="Importer une sauvegarde" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">⬆ Import</button>
   <input id="importFile" type="file" accept="application/json" style="display:none">
@@ -153,11 +154,12 @@ let showsFilter = { q: '', recent: false, notStarted: false };
 let moviesFilter = { q: '', recent: false, notSeen: false, seen: false };
 let upShowMovies = false; // case "Film" sur l'onglet À venir
 
-function save(){
+function save(sansSauvegarde){
   localStorage.setItem('shows', JSON.stringify(shows));
   localStorage.setItem('epCache', JSON.stringify(epCache));
   localStorage.setItem('watched', JSON.stringify(watched));
   localStorage.setItem('movies', JSON.stringify(movies));
+  if (!sansSauvegarde) planSauvegarde();
 }
 async function jwSearch(query) {
   const r = await fetch(JW_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query }) });
@@ -1234,6 +1236,92 @@ $('#main').addEventListener('click', e => {
   const p = e.target.closest('.poster[data-id]');
   if (p) openShow(+p.dataset.id);
 });
+/* ---- sauvegarde Google Drive via n8n (workflow « Sauvegarde — Drive ») ----
+   La clé est saisie une fois par appareil (localStorage). Sauvegarde automatique 3 s après chaque modification, mais seulement
+   une fois l'appareil synchronisé (1re sauvegarde ou restauration faite) : un appareil neuf aux données vides n'écrase pas la sauvegarde. */
+const SAUV_URL = 'https://n8n.srv1250642.hstgr.cloud/webhook/sauvegarde';
+const SAUV_CLE = 'tvShowtime.cle', SAUV_SYNC = 'tvShowtime.sync';
+const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch {} };
+let sauvEtat = '', sauvTimer = null;
+async function sauvAppel(op, data) {
+  const r = await fetch(SAUV_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cle: lsGet(SAUV_CLE), app: 'tv-showtime', op, data }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.erreur || 'HTTP ' + r.status);
+  return j;
+}
+async function sauvegarder() {
+  const d = { shows, watched, movies, date: new Date().toISOString() };
+  if (JSON.stringify({ ...d, epCache }).length < 4e6) d.epCache = epCache; // le serveur refuse plus de 5 Mo ; epCache se reconstruit
+  await sauvAppel('save', d);
+  lsSet(SAUV_SYNC, d.date);
+  return d.date;
+}
+function restaurer(d) {
+  const obj = o => o && typeof o === 'object' && !Array.isArray(o);
+  if (!obj(d) || !Array.isArray(d.shows) || !d.shows.every(s => obj(s) && s.id != null && typeof s.name === 'string') || !obj(d.watched) || !Array.isArray(d.movies) || !d.movies.every(m => obj(m) && m.id != null)) throw new Error('sauvegarde illisible');
+  shows = d.shows; watched = d.watched; movies = d.movies;
+  epCache = obj(d.epCache) ? d.epCache : {};
+  lsSet('historyImportedV2', '1'); // sauvegarde restaurée = pas de réimport historique
+  save(true);
+  lsSet(SAUV_SYNC, d.date || new Date().toISOString());
+}
+function planSauvegarde() {
+  if (!lsGet(SAUV_CLE) || !lsGet(SAUV_SYNC)) return;
+  clearTimeout(sauvTimer);
+  sauvTimer = setTimeout(() => sauvegarder().then(() => { sauvEtat = ''; }, e => { sauvEtat = '⚠ Sauvegarde automatique échouée : ' + e.message; }), 3000);
+}
+const dateFr = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }); };
+const SAUV_BTN = 'background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px';
+function sauvHtml() {
+  const cle = lsGet(SAUV_CLE), sync = lsGet(SAUV_SYNC);
+  const etat = `<p class="sub" id="sauvetat">${esc(sauvEtat || (sync ? 'Dernière sauvegarde : ' + dateFr(sync) : ''))}</p>`;
+  if (!cle) return `<h3>☁ Sauvegarde</h3><p class="sub">Colle ta clé de sauvegarde (une seule fois par appareil) pour garder tes séries et films sur Google Drive et les retrouver sur un autre appareil.</p><div style="display:flex;gap:8px;flex-wrap:wrap"><input id="sauvcle" type="password" autocomplete="off" placeholder="Clé de sauvegarde" aria-label="Clé de sauvegarde" style="flex:1;min-width:160px"><button type="button" data-sauv="cle" style="${SAUV_BTN}">Connecter</button></div>${etat}`;
+  return `<h3>☁ Sauvegarde</h3>${etat}<div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" data-sauv="save" style="${SAUV_BTN}">Sauvegarder</button><button type="button" data-sauv="load" style="${SAUV_BTN}">Restaurer</button><button type="button" data-sauv="oubli" style="${SAUV_BTN}">Oublier la clé</button></div>`;
+}
+async function sauvAction(a) {
+  const maj = m => { sauvEtat = m; const e = $('#sauvetat'); if (e) e.textContent = m; };
+  const rafraichir = () => { const b = $('#sauvBox'); if (b) b.innerHTML = sauvHtml(); };
+  try {
+    if (a === 'oubli') { lsSet(SAUV_CLE, null); lsSet(SAUV_SYNC, null); sauvEtat = ''; rafraichir(); return; }
+    if (a === 'cle') {
+      const v = (($('#sauvcle') || {}).value || '').trim();
+      if (!v) return;
+      lsSet(SAUV_CLE, v);
+      maj('Connexion…');
+      let j;
+      try { j = await sauvAppel('load'); } catch (e) { lsSet(SAUV_CLE, null); throw e; }
+      if (j.vide) { await sauvegarder(); sauvEtat = 'Connecté : sauvegarde créée ✓'; }
+      else if (confirm(`Une sauvegarde du ${dateFr(j.data && j.data.date)} existe. Remplacer les séries et films de cet appareil par elle ?`)) { restaurer(j.data); sauvEtat = 'Données restaurées ✓'; render(); }
+      else sauvEtat = 'Connecté. Rien n’a été remplacé : « Sauvegarder » écrasera la sauvegarde.';
+      rafraichir();
+      return;
+    }
+    if (a === 'save') { maj('Sauvegarde…'); const date = await sauvegarder(); maj('Sauvegardé ✓ ' + dateFr(date)); return; }
+    if (a === 'load') {
+      if (!confirm('Remplacer les séries et films de cet appareil par la sauvegarde ?')) return;
+      maj('Restauration…');
+      const j = await sauvAppel('load');
+      if (j.vide) { maj('Aucune sauvegarde trouvée.'); return; }
+      restaurer(j.data);
+      sauvEtat = 'Données restaurées ✓';
+      render(); rafraichir();
+    }
+  } catch (e) { maj('⚠ ' + e.message); }
+}
+function openSauv() {
+  const div = document.createElement('div');
+  div.className = 'overlay';
+  div.innerHTML = `<div class="modal"><button class="close">✕</button><div id="sauvBox">${sauvHtml()}</div></div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click', e => {
+    if (e.target === div || e.target.closest('.close')) { div.remove(); return; }
+    const b = e.target.closest('[data-sauv]');
+    if (b) sauvAction(b.dataset.sauv);
+  });
+}
+$('#sauvBtn').onclick = openSauv;
+
 /* ---- export / import sauvegarde ---- */
 $('#exportBtn').onclick = () => {
   const data = {
