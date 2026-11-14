@@ -330,11 +330,15 @@ function openShowPreview(s) {
     <div class="sub" data-sc-rating>SensCritique…</div>
     <div class="sub" id="previewOmdbRatings">Notes externes…</div>
     <div>${esc(stripHtml(s.summary)) || 'Pas de synopsis disponible.'}</div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer;font-weight:700">
-      <input type="checkbox" id="previewAddCheck" ${shows.some(w => w.id === s.id) ? 'checked' : ''}> Ajouter à Mes séries
-    </label></div>`;
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:18px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">
+        <input type="checkbox" id="previewAddCheck" ${shows.some(w => w.id === s.id) ? 'checked' : ''}> Ajouter à Mes séries
+      </label>
+      ${stremioBoxHtml('previewStremio', s.name, year, true, true)}
+    </div></div>`;
   document.body.appendChild(div);
   div.addEventListener('click', e => { if (e.target === div || e.target.closest('.close')) div.remove(); });
+  bindStremioBox(div, 'previewStremio', s.name, year, true, s.externals?.imdb);
   $('#previewAddCheck').addEventListener('change', e => {
     if (e.target.checked) {
       if (!shows.some(w => w.id === s.id)) {
@@ -371,11 +375,15 @@ function openMoviePreview(f) {
     <div class="sub" data-sc-rating>SensCritique…</div>
     <div class="sub" id="previewOmdbRatings">Notes externes…</div>
     <div id="previewPlot">Chargement du synopsis…</div>
-    <label style="display:flex;align-items:center;gap:8px;margin-top:18px;cursor:pointer;font-weight:700">
-      <input type="checkbox" id="previewAddCheck" ${movies.some(x => x.id === f.id) ? 'checked' : ''}> Ajouter à Mes films
-    </label></div>`;
+    <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap;margin-top:18px">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:700">
+        <input type="checkbox" id="previewAddCheck" ${movies.some(x => x.id === f.id) ? 'checked' : ''}> Ajouter à Mes films
+      </label>
+      ${stremioBoxHtml('previewStremio', f.title, f.year, false, true)}
+    </div></div>`;
   document.body.appendChild(div);
   div.addEventListener('click', e => { if (e.target === div || e.target.closest('.close')) div.remove(); });
+  bindStremioBox(div, 'previewStremio', f.title, f.year, false);
   $('#previewAddCheck').addEventListener('change', e => {
     if (e.target.checked) {
       if (!movies.some(x => x.id === f.id)) {
@@ -614,20 +622,20 @@ function weekStart(iso) {
 const STREMIO_ADD_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/stremio-add';
 let stremioDone = JSON.parse(localStorage.getItem('stremioDone') || '{}'); // clé titre/année/type -> true
 const stremioKeyOf = (title, year, isSeries) => (isSeries ? 's:' : 'm:') + String(title).toLowerCase() + ':' + (year || '');
-function stremioBoxHtml(id, title, year, isSeries) {
+function stremioBoxHtml(id, title, year, isSeries, strong) {
   const done = !!stremioDone[stremioKeyOf(title, year, isSeries)];
-  return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
+  return `<label style="display:flex;align-items:center;gap:${strong ? 8 : 6}px;cursor:pointer;${strong ? 'font-weight:700' : 'font-size:13px;color:var(--muted);font-weight:600'}">
     <input type="checkbox" id="${id}" ${done ? 'checked disabled' : ''}> ${done ? '✓ Dans Stremio' : 'Ajouter à Stremio'}</label>`;
 }
 // Ajoute le titre à Stremio via n8n. Renvoie { ok } ou { ok:false, msg } ({ cancelled } si le code n'est pas saisi)
-async function stremioAdd(title, year, isSeries) {
+async function stremioAdd(title, year, isSeries, imdbId) {
   let code = localStorage.getItem('stremioSyncKey');
   if (!code) {
     code = (prompt('Code secret Stremio (demandé une seule fois sur cet appareil) :') || '').trim();
     if (!code) return { ok: false, cancelled: true };
   }
   try {
-    const r = await fetch(STREMIO_ADD_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: JSON.stringify({ title, year: year || '', type: isSeries ? 'series' : 'movie' }) });
+    const r = await fetch(STREMIO_ADD_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: JSON.stringify({ title, year: year || '', imdbId: imdbId || '', type: isSeries ? 'series' : 'movie' }) });
     const d = await r.json();
     localStorage.setItem('stremioSyncKey', code);
     if (d.ok) {
@@ -641,14 +649,14 @@ async function stremioAdd(title, year, isSeries) {
     return { ok: false, msg: 'Code refusé ou serveur injoignable' };
   }
 }
-function bindStremioBox(root, id, title, year, isSeries) {
+function bindStremioBox(root, id, title, year, isSeries, imdbId) {
   const box = root.querySelector('#' + id);
   if (!box || box.disabled) return;
   box.addEventListener('change', async () => {
     if (!box.checked) return;
     const lab = box.parentElement;
     box.disabled = true; lab.lastChild.textContent = ' Ajout…';
-    const res = await stremioAdd(title, year, isSeries);
+    const res = await stremioAdd(title, year, isSeries, imdbId);
     if (res.ok) { lab.lastChild.textContent = ' ✓ Dans Stremio'; return; }
     box.checked = false; box.disabled = false;
     lab.lastChild.textContent = res.cancelled ? ' Ajouter à Stremio' : ' ' + res.msg;
