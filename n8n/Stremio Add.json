@@ -13,24 +13,31 @@
       "name": "Webhook Stremio Add",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
-      "position": [0, 0],
+      "position": [
+        0,
+        0
+      ],
       "webhookId": "b6d2f8a4-7c31-4e95-8a1d-5f0c9b3e2d71",
       "credentials": {
         "httpHeaderAuth": {
           "id": "bT27rkpfXOUkhDEc",
           "name": "Stremio Sync Key"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const b = $input.first().json.body || {};\nconst type = (b.type === 'series' || b.type === 'tv') ? 'series' : 'movie';\nconst id = String(b.imdbId || '').trim();\nconst title = String(b.title || '').trim();\nconst hasId = /^tt[0-9]+$/.test(id);\nconst url = hasId\n  ? 'https://v3-cinemeta.strem.io/meta/' + type + '/' + id + '.json'\n  : 'https://v3-cinemeta.strem.io/catalog/' + type + '/top/search=' + encodeURIComponent(title) + '.json';\nreturn [{ json: { type, id: hasId ? id : '', title, year: String(b.year || ''), url, valid: hasId || title.length > 0 } }];"
+        "jsCode": "const b = $input.first().json.body || {};\nconst type = (b.type === 'series' || b.type === 'tv') ? 'series' : 'movie';\nconst id = String(b.imdbId || '').trim();\nconst title = String(b.title || '').trim();\nconst hasId = /^tt[0-9]+$/.test(id);\nconst url = hasId\n  ? 'https://v3-cinemeta.strem.io/meta/' + type + '/' + id + '.json'\n  : 'https://v3-cinemeta.strem.io/catalog/' + type + '/top/search=' + encodeURIComponent(title) + '.json';\nconst accents = new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g');\nconst q = title.toLowerCase().normalize('NFD').replace(accents, '').replace(/[^a-z0-9 ]+/g, ' ').trim().replace(/ +/g, '_');\nreturn [{ json: { type, id: hasId ? id : '', title, year: String(b.year || ''), url, q, q0: q.charAt(0) || 'a', valid: hasId || title.length > 0 } }];"
       },
       "id": "sa2",
       "name": "Prepare",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [224, 0]
+      "position": [
+        224,
+        0
+      ]
     },
     {
       "parameters": {
@@ -42,7 +49,10 @@
       "name": "Cinemeta",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
-      "position": [448, 0],
+      "position": [
+        448,
+        0
+      ],
       "onError": "continueRegularOutput"
     },
     {
@@ -53,7 +63,10 @@
       "name": "Pick Match",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [672, 0]
+      "position": [
+        672,
+        0
+      ]
     },
     {
       "parameters": {
@@ -84,7 +97,10 @@
       "name": "Found?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [896, 0]
+      "position": [
+        896,
+        0
+      ]
     },
     {
       "parameters": {
@@ -101,7 +117,10 @@
       "name": "Put Library",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
-      "position": [1120, -100],
+      "position": [
+        1120,
+        -100
+      ],
       "onError": "continueRegularOutput",
       "credentials": {
         "httpCustomAuth": {
@@ -113,7 +132,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { ok: !!($json.result && $json.result.success === true), id: $('Pick Match').first().json.id, name: $('Pick Match').first().json.name } }}",
+        "responseBody": "={{ $json }}",
         "options": {
           "responseHeaders": {
             "entries": [
@@ -129,7 +148,10 @@
       "name": "Respond OK",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [1344, -100]
+      "position": [
+        1792,
+        -100
+      ]
     },
     {
       "parameters": {
@@ -150,25 +172,228 @@
       "name": "Respond Not Found",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.5,
-      "position": [1120, 100]
+      "position": [
+        1792,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ 'https://v3.sg.media-imdb.com/suggestion/' + $('Prepare').first().json.q0 + '/' + encodeURIComponent($('Prepare').first().json.q) + '.json' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "sa9",
+      "name": "IMDb Suggest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1120,
+        100
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const p = $('Prepare').first().json;\nconst r = $input.first().json || {};\nconst y = parseInt(p.year, 10);\nif (!p.valid || !y || !p.q) return [{ json: { found: false } }];\nconst okType = p.type === 'series' ? ['tvSeries', 'tvMiniSeries'] : ['movie', 'tvMovie'];\nconst list = Array.isArray(r.d) ? r.d : [];\nconst hit = list.find(x => /^tt[0-9]+$/.test(String(x.id)) && okType.indexOf(x.qid) >= 0 && x.y === y);\nif (!hit) return [{ json: { found: false } }];\nconst now = new Date().toISOString();\nconst item = {\n  _id: hit.id,\n  name: hit.l,\n  type: p.type,\n  poster: 'https://images.metahub.space/poster/medium/' + hit.id + '/img',\n  posterShape: 'poster',\n  removed: false,\n  temp: false,\n  _ctime: now,\n  _mtime: now,\n  state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: hit.id, watched: '', noNotif: false, season: 0, episode: 0 },\n  year: String(hit.y)\n};\nreturn [{ json: { found: true, id: hit.id, name: hit.l, changes: [item] } }];"
+      },
+      "id": "sa10",
+      "name": "Pick IMDb",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sa11",
+      "name": "Found IMDb?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1568,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const put = $input.first().json || {};\nlet info = null;\ntry { const t = $('Pick IMDb').first().json; if (t && t.found) info = t; } catch (e) {}\nif (!info) info = $('Pick Match').first().json;\nreturn [{ json: { ok: !!(put.result && put.result.success === true), id: info.id, name: info.name } }];"
+      },
+      "id": "sa12",
+      "name": "Build Reply",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        -100
+      ]
     }
   ],
   "pinData": {},
   "connections": {
-    "Webhook Stremio Add": { "main": [[{ "node": "Prepare", "type": "main", "index": 0 }]] },
-    "Prepare": { "main": [[{ "node": "Cinemeta", "type": "main", "index": 0 }]] },
-    "Cinemeta": { "main": [[{ "node": "Pick Match", "type": "main", "index": 0 }]] },
-    "Pick Match": { "main": [[{ "node": "Found?", "type": "main", "index": 0 }]] },
-    "Found?": {
+    "Webhook Stremio Add": {
       "main": [
-        [{ "node": "Put Library", "type": "main", "index": 0 }],
-        [{ "node": "Respond Not Found", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Prepare",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Put Library": { "main": [[{ "node": "Respond OK", "type": "main", "index": 0 }]] }
+    "Prepare": {
+      "main": [
+        [
+          {
+            "node": "Cinemeta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cinemeta": {
+      "main": [
+        [
+          {
+            "node": "Pick Match",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Match": {
+      "main": [
+        [
+          {
+            "node": "Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found?": {
+      "main": [
+        [
+          {
+            "node": "Put Library",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IMDb Suggest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Put Library": {
+      "main": [
+        [
+          {
+            "node": "Build Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IMDb Suggest": {
+      "main": [
+        [
+          {
+            "node": "Pick IMDb",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick IMDb": {
+      "main": [
+        [
+          {
+            "node": "Found IMDb?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found IMDb?": {
+      "main": [
+        [
+          {
+            "node": "Put Library",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Reply": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
   "active": true,
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1"
+  },
   "id": "38McWSNQRqSe86FV",
   "tags": []
 }
