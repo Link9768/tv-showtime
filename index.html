@@ -835,8 +835,13 @@ function mountScSearch(m, which, isSeries) {
     const uni = isSeries ? 4 : 1;
     const all = (data.results || []).filter(r => r.universe === uni).map(r => ({ id: r.id, title: r.title, originalTitle: r.originalTitle, year: r.year, poster: r.poster, url: r.url, releaseDate: r.releaseDate, rating: r.rating }));
     const nq = normSearch(q);
-    const byTitle = all.filter(r => normSearch(r.title).includes(nq) || normSearch(r.originalTitle).includes(nq));
-    const others = all.filter(r => !byTitle.includes(r)).sort((a, b) => (b.releaseDate || (b.year + '-01-01')).localeCompare(a.releaseDate || (a.year + '-01-01'))).slice(0, 8);
+    const dateKey = r => r.releaseDate || (r.year ? r.year + '-01-01' : '');
+    const byDateDesc = (x, y) => (dateKey(y) || '0').localeCompare(dateKey(x) || '0'); // du plus récent au plus ancien, sans date à la fin
+    const tokens = nq.split(' ').filter(t => t.length >= 3);
+    const hasToken = r => tokens.some(t => normSearch(r.title).includes(t) || normSearch(r.originalTitle).includes(t));
+    const byTitle = all.filter(r => normSearch(r.title).includes(nq) || normSearch(r.originalTitle).includes(nq)).sort(byDateDesc);
+    // films liés à une personne : on écarte ceux dont le titre ne contient qu'un morceau de la recherche (ex. "Milos" seul)
+    const others = all.filter(r => !byTitle.includes(r) && !hasToken(r)).sort(byDateDesc).slice(0, 20);
     const card = f => {
       const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
       const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
