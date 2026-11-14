@@ -605,6 +605,47 @@ function weekStart(iso) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+/* ---- Stremio : ajout à la bibliothèque via n8n (code secret saisi une fois par appareil) ---- */
+const STREMIO_ADD_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/stremio-add';
+let stremioDone = JSON.parse(localStorage.getItem('stremioDone') || '{}'); // clé titre/année/type -> true
+const stremioKeyOf = (title, year, isSeries) => (isSeries ? 's:' : 'm:') + String(title).toLowerCase() + ':' + (year || '');
+function stremioBoxHtml(id, title, year, isSeries) {
+  const done = !!stremioDone[stremioKeyOf(title, year, isSeries)];
+  return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
+    <input type="checkbox" id="${id}" ${done ? 'checked disabled' : ''}> ${done ? '✓ Dans Stremio' : 'Ajouter à Stremio'}</label>`;
+}
+function bindStremioBox(root, id, title, year, isSeries) {
+  const box = root.querySelector('#' + id);
+  if (!box || box.disabled) return;
+  box.addEventListener('change', async () => {
+    if (!box.checked) return;
+    const lab = box.parentElement;
+    let code = localStorage.getItem('stremioSyncKey');
+    if (!code) {
+      code = (prompt('Code secret Stremio (demandé une seule fois sur cet appareil) :') || '').trim();
+      if (!code) { box.checked = false; return; }
+    }
+    box.disabled = true; lab.lastChild.textContent = ' Ajout…';
+    try {
+      const r = await fetch(STREMIO_ADD_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: JSON.stringify({ title, year: year || '', type: isSeries ? 'series' : 'movie' }) });
+      const d = await r.json();
+      localStorage.setItem('stremioSyncKey', code);
+      if (d.ok) {
+        stremioDone[stremioKeyOf(title, year, isSeries)] = true;
+        localStorage.setItem('stremioDone', JSON.stringify(stremioDone));
+        lab.lastChild.textContent = ' ✓ Dans Stremio';
+      } else {
+        box.checked = false; box.disabled = false;
+        lab.lastChild.textContent = d.error === 'not_found' ? ' Introuvable chez Stremio' : ' Échec de l\'ajout';
+      }
+    } catch {
+      localStorage.removeItem('stremioSyncKey');
+      box.checked = false; box.disabled = false;
+      lab.lastChild.textContent = ' Code refusé ou serveur injoignable';
+    }
+  });
+}
+
 function openScDetail(f, isSeries) {
   const div = document.createElement('div');
   div.className = 'overlay';
@@ -626,6 +667,7 @@ function openScDetail(f, isSeries) {
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
           <input type="checkbox" id="scDetailAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
         </label>
+        ${stremioBoxHtml('scDetailStremio', d.title, d.year, isSeries)}
       </h3>
       <div class="sub">SensCritique ${d.url && rating ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none" title="Ouvrir sur SensCritique">${rating}</a>` : (rating || 'pas encore noté')}</div>
       ${d.scouts != null ? `<div class="sub">Mes éclaireurs 👥 ★ ${esc(d.scouts)} (${esc(d.scoutsCount)} note${d.scoutsCount > 1 ? 's' : ''})</div>` : ''}
@@ -633,6 +675,7 @@ function openScDetail(f, isSeries) {
       <div>${esc(d.synopsis || 'Pas de synopsis disponible.')}</div>
       ${d.directors && d.directors.length ? `<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Réalisateur${d.directors.length > 1 ? 's' : ''}</b><br>${d.directors.map(esc).join(', ')}</div>` : ''}
       ${actors}${video}`;
+    bindStremioBox(div, 'scDetailStremio', d.title, d.year, isSeries);
     $('#scDetailAddCheck').addEventListener('change', e => {
       if (isSeries) {
         if (e.target.checked) { addSeriesFromSC(f.title).then(() => { if (tab === 'awaited' || tab === 'releases') renderSC(tab); }); }
@@ -684,12 +727,14 @@ function openPlatformDetail(f, isSeries) {
       <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
         <input type="checkbox" id="pfAddCheck" ${inList ? 'checked' : ''}> Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}
       </label>
+      ${stremioBoxHtml('pfStremio', f.title, f.year, isSeries)}
     </h3>
     <div class="sub">${esc(f.platform)} · depuis le ${formatDateFr(f.date)}${f.url ? ` · <a href="${esc(f.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">JustWatch ↗</a>` : ''}</div>
     <div class="sub" data-sc-rating>SensCritique…</div>
     <div>${esc(f.synopsis || 'Pas de synopsis disponible.')}</div></div>`;
   document.body.appendChild(div);
   div.addEventListener('click', e => { if (e.target === div || e.target.closest('.close')) div.remove(); });
+  bindStremioBox(div, 'pfStremio', f.title, f.year, isSeries);
   $('#pfAddCheck').addEventListener('change', () => togglePlatformItem(f, isSeries));
   fillScRating(div, f.title, f.year, isSeries ? 'series' : 'movie');
 }
