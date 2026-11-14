@@ -357,6 +357,93 @@
         672,
         480
       ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "senscritique-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "ss1",
+      "name": "Webhook Search List",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        700
+      ],
+      "webhookId": "a3f5c8d1-9e24-4b67-8d0a-6c1e7f2b4a95",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ operationName: 'SearchAutocomplete', variables: { keywords: String(($json.body && $json.body.q) || ''), universe: null, limit: 30 }, query: 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { id title originalTitle dateRelease dateReleaseOriginal yearOfProduction universe url rating medias(backdropSize: \"300\") { picture } } } } }' }) }}",
+        "options": {}
+      },
+      "id": "ss2",
+      "name": "Query Search List",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        700
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nconst list = (raw && raw.data && raw.data.searchAutocomplete && raw.data.searchAutocomplete.items) || [];\nconst iso = d => (typeof d === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(d)) ? d.slice(0, 10) : null;\nconst results = [];\nfor (const it of list) {\n  const p = it && it.product;\n  if (!p || (p.universe !== 1 && p.universe !== 4)) continue;\n  const date = iso(p.dateRelease) || iso(p.dateReleaseOriginal);\n  results.push({\n    id: String(p.id),\n    title: p.title || '',\n    originalTitle: p.originalTitle || null,\n    year: p.yearOfProduction || (date ? date.slice(0, 4) : null),\n    releaseDate: date,\n    rating: p.rating || null,\n    universe: p.universe,\n    url: p.url ? 'https://www.senscritique.com' + p.url : null,\n    poster: (p.medias && p.medias.picture) || null\n  });\n}\nreturn [{ json: { results } }];"
+      },
+      "id": "ss3",
+      "name": "Normalize Search List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "ss4",
+      "name": "Respond Search List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        700
+      ]
     }
   ],
   "pinData": {},
@@ -476,6 +563,39 @@
         [
           {
             "node": "Respond Rating",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Search List": {
+      "main": [
+        [
+          {
+            "node": "Query Search List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Search List": {
+      "main": [
+        [
+          {
+            "node": "Normalize Search List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Search List": {
+      "main": [
+        [
+          {
+            "node": "Respond Search List",
             "type": "main",
             "index": 0
           }

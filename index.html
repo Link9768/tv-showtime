@@ -684,6 +684,7 @@ function bindGridChecks(m, list, isSeries, onAdd) {
     const y = window.scrollY;
     await onAdd(f, cb.checked);
     window.scrollTo(0, y);
+    setTimeout(() => window.scrollTo(0, y), 250); // la recherche se réaffiche juste après le rendu
   }));
   m.querySelectorAll('[data-gcstremio]').forEach(cb => cb.addEventListener('change', async () => {
     if (!cb.checked) return;
@@ -784,6 +785,65 @@ function togglePlatformItem(f, isSeries) {
   }
 }
 
+/* ---- recherche SensCritique (titre, acteur, réalisateur) dans Dernières sorties / Les plus attendus ---- */
+const SC_SEARCH_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/senscritique-search';
+let scQuery = { releases: '', awaited: '' };
+const scSearchCache = {};
+function scSearch(q) {
+  const k = q.toLowerCase();
+  if (!scSearchCache[k]) scSearchCache[k] = fetch(SC_SEARCH_API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ q }) }).then(r => r.json()).catch(e => { delete scSearchCache[k]; throw e; });
+  return scSearchCache[k];
+}
+const normSearch = s => String(s || '').toLowerCase().normalize('NFD').replace(new RegExp('[' + String.fromCharCode(0x300) + '-' + String.fromCharCode(0x36f) + ']', 'g'), '').replace(/[^a-z0-9]+/g, ' ').trim();
+function mountScSearch(m, which, isSeries) {
+  const h2 = m.querySelector('h2');
+  if (!h2) return;
+  const box = document.createElement('div');
+  box.innerHTML = `<input id="scSearchInput" type="search" placeholder="🔎 Chercher un titre, un acteur, un réalisateur…" value="${esc(scQuery[which])}" autocomplete="off" style="width:100%;margin-bottom:12px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:9px 16px;color:var(--text);font-size:14px;outline:none"><div id="scSearchResults"></div>`;
+  h2.after(box);
+  const input = box.querySelector('#scSearchInput'), out = box.querySelector('#scSearchResults');
+  const hideList = on => m.querySelectorAll('.grid, .weekhdr, .empty').forEach(el => { if (!box.contains(el)) el.style.display = on ? 'none' : ''; });
+  let seq = 0, timer;
+  const run = async () => {
+    const q = input.value.trim();
+    scQuery[which] = q;
+    const mine = ++seq;
+    if (q.length < 2) { out.innerHTML = ''; hideList(false); return; }
+    hideList(true);
+    out.innerHTML = '<div class="empty">Recherche…</div>';
+    let data;
+    try { data = await scSearch(q); }
+    catch { if (mine === seq) out.innerHTML = '<div class="empty">Recherche indisponible.</div>'; return; }
+    if (mine !== seq || !out.isConnected) return;
+    const uni = isSeries ? 4 : 1;
+    const all = (data.results || []).filter(r => r.universe === uni).map(r => ({ id: r.id, title: r.title, originalTitle: r.originalTitle, year: r.year, poster: r.poster, url: r.url, releaseDate: r.releaseDate, rating: r.rating }));
+    const nq = normSearch(q);
+    const byTitle = all.filter(r => normSearch(r.title).includes(nq) || normSearch(r.originalTitle).includes(nq));
+    const others = all.filter(r => !byTitle.includes(r)).sort((a, b) => (b.releaseDate || (b.year + '-01-01')).localeCompare(a.releaseDate || (a.year + '-01-01'))).slice(0, 8);
+    const card = f => {
+      const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
+      const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
+      const date = f.releaseDate ? `<div class="reldate">${formatDateFr(f.releaseDate)}</div>` : '';
+      const badge = f.rating ? `<div class="badge">★ ${esc(f.rating)}</div>` : '';
+      return `<div class="poster" data-sc="${esc(f.id)}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${esc(f.id)}" title="Voir la fiche">ⓘ</button>${gridChecksHtml(f, isSeries, inList)}</div>${date}${badge}</div>`;
+    };
+    const section = (label, arr) => arr.length ? `<div class="weekhdr">${label}</div><div class="grid">${arr.map(card).join('')}</div>` : '';
+    const word = isSeries ? 'Séries' : 'Films';
+    out.innerHTML = (byTitle.length || others.length)
+      ? section(`${word} correspondant au titre`, byTitle) + section(`Autres ${word.toLowerCase()} liés (acteur, réalisateur…), du plus récent au plus ancien`, others)
+      : '<div class="empty">Aucun résultat.</div>';
+    const shown = [...byTitle, ...others];
+    out.querySelectorAll('[data-info]').forEach(btn => btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const f = shown.find(x => x.id === btn.dataset.info);
+      if (f) openScDetail(f, isSeries);
+    }));
+    bindGridChecks(out, shown, isSeries, (f, checked) => toggleScItem(f, isSeries, checked));
+  };
+  input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 400); });
+  if (scQuery[which]) run();
+}
+
 async function renderPlatforms(m, title, topHtml, isSeries) {
   m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">Chargement…</div>`;
   const bind = () => {
@@ -826,6 +886,7 @@ async function renderPlatforms(m, title, topHtml, isSeries) {
     const f = list.find(x => x.id === p.dataset.pf);
     if (f) togglePlatformItem(f, isSeries);
   }));
+  mountScSearch(m, 'releases', isSeries);
 }
 
 async function renderSC(which) {
@@ -933,6 +994,7 @@ async function renderSC(which) {
       }
     });
   });
+  mountScSearch(m, which, isSeries);
 }
 
 /* ---- films ---- */
