@@ -48,6 +48,9 @@
   .poster:hover .del{display:block}
   .title-check{display:inline-flex;align-items:center;cursor:pointer;margin-right:4px;vertical-align:middle}
   .title-check input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
+  .pfchecks{display:inline-flex;gap:10px;margin-left:14px;vertical-align:middle}
+  .pfchecks input{width:15px;height:15px;cursor:pointer;accent-color:var(--accent)}
+  .pfchecks input.stremio{accent-color:#8b5cf6}
   /* à venir */
   .up{display:flex;flex-direction:column;gap:12px}
   .row[data-show],.row[data-movie]{cursor:pointer}
@@ -144,6 +147,7 @@ let epCache = JSON.parse(localStorage.getItem('epCache') || '{}'); // id -> {nex
 let watched = JSON.parse(localStorage.getItem('watched') || '{}'); // id -> [seasonNums]
 let movies = JSON.parse(localStorage.getItem('movies') || '[]'); // {id,title,year,poster,justwatchUrl,seen}
 let tab = 'up';
+try { const t = sessionStorage.getItem('tab'); if (['shows', 'movies', 'up', 'releases', 'awaited', 'where', 'stat'].includes(t)) tab = t; } catch {} // l'onglet survit au rafraîchissement
 let apiDown = false;
 let showsFilter = { q: '', recent: false, notStarted: false };
 let moviesFilter = { q: '', recent: false, notSeen: false, seen: false };
@@ -463,6 +467,7 @@ function openShow(id) {
 
 /* ---- rendu ---- */
 function render() {
+  try { sessionStorage.setItem('tab', tab); } catch {}
   $('#tabShows').className = tab === 'shows' ? 'on' : '';
   $('#tabMovies').className = tab === 'movies' ? 'on' : '';
   $('#tabUp').className = tab === 'up' ? 'on' : '';
@@ -614,36 +619,82 @@ function stremioBoxHtml(id, title, year, isSeries) {
   return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:var(--muted);font-weight:600">
     <input type="checkbox" id="${id}" ${done ? 'checked disabled' : ''}> ${done ? '✓ Dans Stremio' : 'Ajouter à Stremio'}</label>`;
 }
+// Ajoute le titre à Stremio via n8n. Renvoie { ok } ou { ok:false, msg } ({ cancelled } si le code n'est pas saisi)
+async function stremioAdd(title, year, isSeries) {
+  let code = localStorage.getItem('stremioSyncKey');
+  if (!code) {
+    code = (prompt('Code secret Stremio (demandé une seule fois sur cet appareil) :') || '').trim();
+    if (!code) return { ok: false, cancelled: true };
+  }
+  try {
+    const r = await fetch(STREMIO_ADD_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: JSON.stringify({ title, year: year || '', type: isSeries ? 'series' : 'movie' }) });
+    const d = await r.json();
+    localStorage.setItem('stremioSyncKey', code);
+    if (d.ok) {
+      stremioDone[stremioKeyOf(title, year, isSeries)] = true;
+      localStorage.setItem('stremioDone', JSON.stringify(stremioDone));
+      return { ok: true };
+    }
+    return { ok: false, msg: d.error === 'not_found' ? 'Introuvable chez Stremio' : "Échec de l'ajout" };
+  } catch {
+    localStorage.removeItem('stremioSyncKey');
+    return { ok: false, msg: 'Code refusé ou serveur injoignable' };
+  }
+}
 function bindStremioBox(root, id, title, year, isSeries) {
   const box = root.querySelector('#' + id);
   if (!box || box.disabled) return;
   box.addEventListener('change', async () => {
     if (!box.checked) return;
     const lab = box.parentElement;
-    let code = localStorage.getItem('stremioSyncKey');
-    if (!code) {
-      code = (prompt('Code secret Stremio (demandé une seule fois sur cet appareil) :') || '').trim();
-      if (!code) { box.checked = false; return; }
-    }
     box.disabled = true; lab.lastChild.textContent = ' Ajout…';
-    try {
-      const r = await fetch(STREMIO_ADD_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: JSON.stringify({ title, year: year || '', type: isSeries ? 'series' : 'movie' }) });
-      const d = await r.json();
-      localStorage.setItem('stremioSyncKey', code);
-      if (d.ok) {
-        stremioDone[stremioKeyOf(title, year, isSeries)] = true;
-        localStorage.setItem('stremioDone', JSON.stringify(stremioDone));
-        lab.lastChild.textContent = ' ✓ Dans Stremio';
-      } else {
-        box.checked = false; box.disabled = false;
-        lab.lastChild.textContent = d.error === 'not_found' ? ' Introuvable chez Stremio' : ' Échec de l\'ajout';
-      }
-    } catch {
-      localStorage.removeItem('stremioSyncKey');
-      box.checked = false; box.disabled = false;
-      lab.lastChild.textContent = ' Code refusé ou serveur injoignable';
-    }
+    const res = await stremioAdd(title, year, isSeries);
+    if (res.ok) { lab.lastChild.textContent = ' ✓ Dans Stremio'; return; }
+    box.checked = false; box.disabled = false;
+    lab.lastChild.textContent = res.cancelled ? ' Ajouter à Stremio' : ' ' + res.msg;
   });
+}
+
+// Ajout/retrait dans Mes films / Mes séries depuis une fiche ou une grille (SensCritique)
+async function toggleScItem(f, isSeries, checked) {
+  if (isSeries) {
+    if (checked) await addSeriesFromSC(f.title);
+    else {
+      const existing = shows.find(s => s.name.toLowerCase() === f.title.toLowerCase());
+      if (existing) { shows = shows.filter(s => s.id !== existing.id); delete epCache[existing.id]; delete watched[existing.id]; save(); }
+    }
+  } else if (checked) {
+    if (!movies.some(x => x.id === f.id)) {
+      movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now(), releaseDate: f.releaseDate || null });
+      save();
+    }
+  } else { movies = movies.filter(x => x.id !== f.id); save(); }
+  if (tab === 'awaited' || tab === 'releases') await renderSC(tab);
+}
+// Deux cases à droite du ⓘ dans les grilles : 1) ajouter à Mes films/séries, 2) ajouter à Stremio
+function gridChecksHtml(f, isSeries, inList) {
+  const done = !!stremioDone[stremioKeyOf(f.title, f.year, isSeries)];
+  return `<span class="pfchecks"><input type="checkbox" data-gcadd="${esc(f.id)}" title="Ajouter à ${isSeries ? 'Mes séries' : 'Mes films'}" ${inList ? 'checked' : ''}><input type="checkbox" class="stremio" data-gcstremio="${esc(f.id)}" title="${done ? 'Dans Stremio' : 'Ajouter à Stremio'}" ${done ? 'checked disabled' : ''}></span>`;
+}
+function bindGridChecks(m, list, isSeries, onAdd) {
+  m.querySelectorAll('.pfchecks').forEach(c => { c.addEventListener('click', e => e.stopPropagation()); c.addEventListener('dblclick', e => e.stopPropagation()); });
+  m.querySelectorAll('[data-gcadd]').forEach(cb => cb.addEventListener('change', async () => {
+    const f = list.find(x => String(x.id) === cb.dataset.gcadd);
+    if (!f) return;
+    const y = window.scrollY;
+    await onAdd(f, cb.checked);
+    window.scrollTo(0, y);
+  }));
+  m.querySelectorAll('[data-gcstremio]').forEach(cb => cb.addEventListener('change', async () => {
+    if (!cb.checked) return;
+    const f = list.find(x => String(x.id) === cb.dataset.gcstremio);
+    if (!f) return;
+    cb.disabled = true;
+    const res = await stremioAdd(f.title, f.year, isSeries);
+    if (res.ok) { cb.title = 'Dans Stremio'; return; }
+    cb.checked = false; cb.disabled = false;
+    if (!res.cancelled) alert(res.msg);
+  }));
 }
 
 function openScDetail(f, isSeries) {
@@ -676,25 +727,7 @@ function openScDetail(f, isSeries) {
       ${d.directors && d.directors.length ? `<div class="sub" style="margin-top:16px"><b style="color:var(--text)">Réalisateur${d.directors.length > 1 ? 's' : ''}</b><br>${d.directors.map(esc).join(', ')}</div>` : ''}
       ${actors}${video}`;
     bindStremioBox(div, 'scDetailStremio', d.title, d.year, isSeries);
-    $('#scDetailAddCheck').addEventListener('change', e => {
-      if (isSeries) {
-        if (e.target.checked) { addSeriesFromSC(f.title).then(() => { if (tab === 'awaited' || tab === 'releases') renderSC(tab); }); }
-        else {
-          const existing = shows.find(s => s.name.toLowerCase() === f.title.toLowerCase());
-          if (existing) { shows = shows.filter(s => s.id !== existing.id); delete epCache[existing.id]; delete watched[existing.id]; save(); if (tab === 'awaited' || tab === 'releases') renderSC(tab); }
-        }
-      } else if (e.target.checked) {
-        if (!movies.some(x => x.id === f.id)) {
-          movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now(), releaseDate: f.releaseDate || null });
-          save();
-        }
-        if (tab === 'awaited' || tab === 'releases') renderSC(tab);
-      } else {
-        movies = movies.filter(x => x.id !== f.id);
-        save();
-        if (tab === 'awaited' || tab === 'releases') renderSC(tab);
-      }
-    });
+    $('#scDetailAddCheck').addEventListener('change', e => toggleScItem(f, isSeries, e.target.checked));
     omdbFetch({ title: d.title, year: d.year || '' }).then(od => {
       if (!div.isConnected) return;
       const el = div.querySelector('#scOmdbRatings');
@@ -741,13 +774,13 @@ function openPlatformDetail(f, isSeries) {
 function togglePlatformItem(f, isSeries) {
   if (isSeries) {
     const existing = shows.find(s => s.name.toLowerCase() === f.title.toLowerCase());
-    if (existing) { shows = shows.filter(s => s.id !== existing.id); delete epCache[existing.id]; delete watched[existing.id]; save(); renderSC('releases'); }
-    else addSeriesFromSC(f.title).then(() => renderSC('releases'));
+    if (existing) { shows = shows.filter(s => s.id !== existing.id); delete epCache[existing.id]; delete watched[existing.id]; save(); return renderSC('releases'); }
+    else return addSeriesFromSC(f.title).then(() => renderSC('releases'));
   } else if (movies.some(x => x.id === f.id)) {
-    movies = movies.filter(x => x.id !== f.id); save(); renderSC('releases');
+    movies = movies.filter(x => x.id !== f.id); save(); return renderSC('releases');
   } else {
     movies.push({ id: f.id, title: f.title, year: f.year, poster: f.poster, justwatchUrl: f.url, seen: false, dateAdded: Date.now() });
-    save(); renderSC('releases');
+    save(); return renderSC('releases');
   }
 }
 
@@ -773,7 +806,7 @@ async function renderPlatforms(m, title, topHtml, isSeries) {
   m.innerHTML = `<h2>${title}</h2>${topHtml}` + (list.length ? '<div class="grid">' + list.map(f => {
     const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
-    return `<div class="poster" data-pf="${esc(f.id)}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.season ? ' — ' + esc(f.season) : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-pfinfo="${esc(f.id)}" title="Voir la fiche">ⓘ</button></div><div class="reldate">${esc(f.platform)} · ${formatDateFr(f.date)}</div><div class="badge" data-pfrating="${esc(f.id)}" style="display:none"></div></div>`;
+    return `<div class="poster" data-pf="${esc(f.id)}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.season ? ' — ' + esc(f.season) : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-pfinfo="${esc(f.id)}" title="Voir la fiche">ⓘ</button>${gridChecksHtml(f, isSeries, inList)}</div><div class="reldate">${esc(f.platform)} · ${formatDateFr(f.date)}</div><div class="badge" data-pfrating="${esc(f.id)}" style="display:none"></div></div>`;
   }).join('') + '</div>' : `<div class="empty">Aucun${isSeries ? 'e série' : ' film'}.</div>`);
   bind();
   for (const f of list) {
@@ -782,6 +815,7 @@ async function renderPlatforms(m, title, topHtml, isSeries) {
       if (el && d && d.found && d.rating) { el.textContent = '★ ' + d.rating; el.style.display = ''; }
     }).catch(() => {});
   }
+  bindGridChecks(m, list, isSeries, f => togglePlatformItem(f, isSeries));
   m.querySelectorAll('[data-pfinfo]').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
     const f = list.find(x => x.id === btn.dataset.pfinfo);
@@ -829,7 +863,7 @@ async function renderSC(which) {
       : (f.rating || scouts ? `<div class="badge">${f.rating ? '★ ' + f.rating : ''}${f.rating ? scouts : scouts.slice(3)}</div>` : '');
     const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
     const dateLine = f.releaseDate ? `<div class="reldate">${formatDateFr(f.releaseDate)}</div>` : '';
-    return `<div class="poster" data-sc="${f.id}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button></div>${dateLine}${badge}</div>`;
+    return `<div class="poster" data-sc="${f.id}" title="Double-cliquer pour ajouter/retirer de ${isSeries ? 'Mes séries' : 'Mes films'}">${img}<div class="t">${esc(f.title)}${f.year ? ' (' + f.year + ')' : ''}${inList ? ' ✓' : ''} <button class="scinfo" data-info="${f.id}" title="Voir la fiche">ⓘ</button>${gridChecksHtml(f, isSeries, inList)}</div>${dateLine}${badge}</div>`;
   }
 
   if (!list.length) { m.innerHTML = `<h2>${title}</h2>${topHtml}<div class="empty">Aucun${isSeries ? 'e série' : ' film'}${awaitedMonthFilter ? ' ce mois-ci' : ''}.</div>`; }
@@ -875,6 +909,7 @@ async function renderSC(which) {
     });
   });
 
+  bindGridChecks(m, list, isSeries, (f, checked) => toggleScItem(f, isSeries, checked));
   m.querySelectorAll('.poster[data-sc]').forEach(p => {
     p.addEventListener('dblclick', e => {
       if (e.target.closest('[data-info]')) return;
