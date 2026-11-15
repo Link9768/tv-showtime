@@ -591,7 +591,9 @@ function renderStats() {
       .then(od => { if (od && od.runtime) m.minutes = od.runtime; else if (od) m.noRuntime = true; }, () => {})))
       .then(() => { save(); if (tab === 'stat') renderStats(); });
   }
-  $('#main').innerHTML = `<h2>Statistique et temps passé devant des séries</h2>
+  const ong = v => `<button type="button" data-statv="${v}" style="background:${statsView === v ? 'var(--accent)' : 'none'};color:${statsView === v ? '#000' : 'var(--muted)'};border:1px solid var(--line);border-radius:20px;padding:8px 18px;cursor:pointer;font-size:14px;font-weight:600">${v === 'series' ? 'Séries' : 'Films'}</button>`;
+  const onglets = `<div style="display:flex;gap:8px;margin-bottom:18px">${ong('series')}${ong('films')}</div>`;
+  const htmlSeries = `<h2>Statistique et temps passé devant des séries</h2>
     <div class="statbig">${fmtDuree(total)}</div>
     <div class="statsub">${mo ? `soit ${d} j ${h} h · ` : ''}${rows.reduce((a,r) => a + r.eps, 0)} épisodes · ${rows.reduce((a,r) => a + r.seasons, 0)} saisons cochées</div>` +
     (rows.length ? rows.map(r => `<div class="statrow">
@@ -599,8 +601,8 @@ function renderStats() {
       <div class="n">${esc(r.s.name)}</div>
       <div class="v">${r.seasons} saison${r.seasons > 1 ? 's' : ''} · ${r.eps} ép.</div>
       <div class="h">${Math.round(r.min/60)} h</div></div>`).join('')
-    : '<div class="empty">Coche des saisons (clic sur une série) pour alimenter les stats.</div>') +
-    `<h2 style="margin-top:36px">Films</h2>
+    : '<div class="empty">Coche des saisons (clic sur une série) pour alimenter les stats.</div>');
+  const htmlFilms = `<h2>Statistique et temps passé devant des films</h2>
     <div class="statbig">${fmtDuree(fmin)}</div>
     <div class="statsub">${vus.length} film${vus.length > 1 ? 's' : ''} vu${vus.length > 1 ? 's' : ''}${sansDuree.length ? ` · durée inconnue pour ${sansDuree.length}` : ''}</div>` +
     (vus.length ? vus.map(mv => `<div class="statrow">
@@ -609,7 +611,11 @@ function renderStats() {
       <div class="v">${mv.year ? esc(mv.year) : ''}</div>
       <div class="h">${mv.minutes ? fmtDuree(mv.minutes) : '—'}</div></div>`).join('')
     : '<div class="empty">Décoche la case jaune d’un film (Mes films) pour le marquer vu.</div>');
+  const m = $('#main');
+  m.innerHTML = onglets + (statsView === 'films' ? htmlFilms : htmlSeries);
+  m.querySelectorAll('[data-statv]').forEach(b => b.addEventListener('click', () => { statsView = b.dataset.statv; renderStats(); }));
 }
+let statsView = 'series'; // onglet des stats : 'series' ou 'films'
 const omdbRuntimeTried = new Set(); // films dont la durée a déjà été demandée à OMDb pendant cette session
 function fmtDuree(t) {
   const d = Math.floor(t / 1440), h = Math.floor(t % 1440 / 60), mn = t % 60, mo = Math.floor(d / 30.44);

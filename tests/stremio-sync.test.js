@@ -44,7 +44,7 @@ function monde({ ls = {}, seen }) {
       return json({});
     },
   };
-  const f = vm.runInNewContext(`${script}; ({ stremioSync, renderStats, state: () => ({ shows, watched, movies }), setState: d => { shows = d.shows; watched = d.watched; movies = d.movies; } })`, ctx);
+  const f = vm.runInNewContext(`${script}; ({ stremioSync, renderStats, vue: v => { statsView = v; }, state: () => ({ shows, watched, movies }), setState: d => { shows = d.shows; watched = d.watched; movies = d.movies; } })`, ctx);
   return { f, stock, appels, els, etat };
 }
 
@@ -126,7 +126,12 @@ test('stats : catégorie films à part (nombre et durée), durée manquante comp
   ] });
   f.renderStats();
   let h = els['#main'].innerHTML;
-  assert.ok(h.includes('Films') && h.includes('2 films vus'));
+  // onglets Séries | Films en haut ; par défaut les séries
+  assert.ok(h.includes('data-statv="series"') && h.includes('data-statv="films"') && !h.includes('films vus'));
+  f.vue('films');
+  f.renderStats();
+  h = els['#main'].innerHTML;
+  assert.ok(h.includes('2 films vus') && !h.includes('saisons cochées'));
   await new Promise(r => setImmediate(r)); await new Promise(r => setImmediate(r));
   assert.equal(f.state().movies.find(m => m.id === 'b').minutes, 125);
   f.renderStats();
