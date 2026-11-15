@@ -22,7 +22,7 @@ function monde({ ls = {}, serveur = { ok: true, vide: true } } = {}) {
     window: { scrollTo() {}, scrollY: 0 }, scrollTo() {}, scrollY: 0, URLSearchParams, URL, Blob,
     localStorage: { getItem: k => stock[k] ?? null, setItem: (k, v) => { stock[k] = String(v); }, removeItem: k => { delete stock[k]; } },
     sessionStorage: { getItem: () => null, setItem() {} },
-    setTimeout: fn => { timers.push(fn); return timers.length; }, clearTimeout() {},
+    setTimeout: (fn, ms) => { if (ms === 3000) timers.push(fn); return timers.length; }, clearTimeout() {}, // seuls les minuteurs d'auto-sauvegarde comptent
     confirm: () => etat.confirmer, alert() {}, prompt: () => null,
     fetch: async (u, o) => {
       if (!String(u).includes('/webhook/sauvegarde')) return { ok: true, status: 200, json: async () => ({}) }; // autres API : sans intérêt ici

@@ -132,6 +132,7 @@
     <input id="q" type="search" placeholder="🔍 Chercher une série…" autocomplete="off">
     <div class="results" id="results"></div>
   </div>
+  <button id="stremioSyncBtn" title="Reporter dans l'appli les films et saisons terminés dans Stremio" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">⟳ Stremio</button>
   <button id="sauvBtn" title="Sauvegarde sur Google Drive" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">☁ Sauvegarde</button>
   <button id="exportBtn" title="Exporter mes données (sauvegarde)" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">⬇ Export</button>
   <button id="importBtn" title="Importer une sauvegarde" style="background:none;border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:8px 14px;cursor:pointer;font-size:13px">⬆ Import</button>
@@ -577,18 +578,42 @@ function renderStats() {
     return { s, seasons: w.length, eps, min };
   }).filter(r => r.min > 0).sort((a,b) => b.min - a.min);
   const total = rows.reduce((a,r) => a + r.min, 0);
-  const d = Math.floor(total / 1440), h = Math.floor(total % 1440 / 60), mn = total % 60;
+  const d = Math.floor(total / 1440), h = Math.floor(total % 1440 / 60);
   const mo = Math.floor(d / 30.44);
-  const big = total ? (mo ? `${mo} mois ${Math.round(d - mo * 30.44)} j` : d ? `${d} j ${h} h` : `${h} h ${mn} min`) : '0 h';
+  // films vus : durée connue (Stremio) ou complétée une fois via OMDb
+  const vus = movies.filter(m => m.seen).sort((a, b) => (b.dateAdded || 0) - (a.dateAdded || 0));
+  const fmin = vus.reduce((a, m) => a + (m.minutes || 0), 0);
+  const sansDuree = vus.filter(m => !m.minutes && !m.noRuntime);
+  const aChercher = sansDuree.filter(m => !omdbRuntimeTried.has(m.id));
+  if (aChercher.length) {
+    aChercher.forEach(m => omdbRuntimeTried.add(m.id));
+    Promise.all(aChercher.map(m => omdbFetch(m.imdb ? { imdbId: m.imdb } : { title: m.title, year: m.year || '', type: 'movie' })
+      .then(od => { if (od && od.runtime) m.minutes = od.runtime; else if (od) m.noRuntime = true; }, () => {})))
+      .then(() => { save(); if (tab === 'stat') renderStats(); });
+  }
   $('#main').innerHTML = `<h2>Statistique et temps passé devant des séries</h2>
-    <div class="statbig">${big}</div>
+    <div class="statbig">${fmtDuree(total)}</div>
     <div class="statsub">${mo ? `soit ${d} j ${h} h · ` : ''}${rows.reduce((a,r) => a + r.eps, 0)} épisodes · ${rows.reduce((a,r) => a + r.seasons, 0)} saisons cochées</div>` +
     (rows.length ? rows.map(r => `<div class="statrow">
       ${r.s.image ? `<img class="thumb" src="${r.s.image}" alt="">` : '<div class="thumb"></div>'}
       <div class="n">${esc(r.s.name)}</div>
       <div class="v">${r.seasons} saison${r.seasons > 1 ? 's' : ''} · ${r.eps} ép.</div>
       <div class="h">${Math.round(r.min/60)} h</div></div>`).join('')
-    : '<div class="empty">Coche des saisons (clic sur une série) pour alimenter les stats.</div>');
+    : '<div class="empty">Coche des saisons (clic sur une série) pour alimenter les stats.</div>') +
+    `<h2 style="margin-top:36px">Films</h2>
+    <div class="statbig">${fmtDuree(fmin)}</div>
+    <div class="statsub">${vus.length} film${vus.length > 1 ? 's' : ''} vu${vus.length > 1 ? 's' : ''}${sansDuree.length ? ` · durée inconnue pour ${sansDuree.length}` : ''}</div>` +
+    (vus.length ? vus.map(mv => `<div class="statrow">
+      ${mv.poster ? `<img class="thumb" src="${esc(mv.poster)}" alt="">` : '<div class="thumb"></div>'}
+      <div class="n">${esc(mv.title)}</div>
+      <div class="v">${mv.year ? esc(mv.year) : ''}</div>
+      <div class="h">${mv.minutes ? fmtDuree(mv.minutes) : '—'}</div></div>`).join('')
+    : '<div class="empty">Décoche la case jaune d’un film (Mes films) pour le marquer vu.</div>');
+}
+const omdbRuntimeTried = new Set(); // films dont la durée a déjà été demandée à OMDb pendant cette session
+function fmtDuree(t) {
+  const d = Math.floor(t / 1440), h = Math.floor(t % 1440 / 60), mn = t % 60, mo = Math.floor(d / 30.44);
+  return t ? (mo ? `${mo} mois ${Math.round(d - mo * 30.44)} j` : d ? `${d} j ${h} h` : `${h} h ${mn} min`) : '0 h';
 }
 
 /* ---- SensCritique ---- */
@@ -663,6 +688,83 @@ function bindStremioBox(root, id, title, year, isSeries, imdbId) {
     box.checked = false; box.disabled = false;
     lab.lastChild.textContent = res.cancelled ? ' Ajouter à Stremio' : ' ' + res.msg;
   });
+}
+
+/* ---- synchro Stremio → appli : films vus et saisons terminées dans Stremio (à l'ouverture + bouton ⟳ Stremio) ----
+   Ce qui a déjà été appliqué est mémorisé (stremioApplied, par id IMDb) : un film retiré de l'appli ne revient pas. */
+const STREMIO_SEEN_API = 'https://n8n.srv1250642.hstgr.cloud/webhook/stremio-seen';
+// Saisons terminées (dernier épisode vu) d'après le champ « watched » de Stremio :
+// <dernière vidéo vue>:<nb de vidéos à l'époque>:<base64(zlib(bit i = i-ème vidéo vue))>
+async function stremioSeasonsSeen(imdb, w) {
+  const p = String(w).split(':');
+  const b64 = p.pop(), len = +p.pop(), anchor = p.join(':');
+  const bin = atob(b64), raw = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) raw[i] = bin.charCodeAt(i);
+  const bits = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate'))).arrayBuffer());
+  const meta = (await (await fetch(`https://v3-cinemeta.strem.io/meta/series/${imdb}.json`)).json()).meta || {};
+  const vids = [...(meta.videos || [])].sort((a, b) => a.season - b.season || a.episode - b.episode);
+  const ai = vids.findIndex(v => v.id === anchor);
+  const off = ai >= 0 ? ai - (len - 1) : 0; // la liste d'épisodes a pu s'allonger depuis
+  const vu = i => { const j = i - off; return j >= 0 && j < bits.length * 8 && (bits[j >> 3] >> (j & 7)) & 1; };
+  const last = {};
+  vids.forEach((v, i) => { if (v.season > 0) last[v.season] = i; });
+  return Object.keys(last).map(Number).filter(s => vu(last[s]));
+}
+async function stremioSync(manuel) {
+  let code = localStorage.getItem('stremioSyncKey');
+  if (!code) {
+    if (!manuel) return { films: 0, saisons: 0 };
+    code = (prompt('Code secret Stremio (demandé une seule fois sur cet appareil) :') || '').trim();
+    if (!code) return { films: 0, saisons: 0 };
+  }
+  let d;
+  try {
+    const r = await fetch(STREMIO_SEEN_API, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-sync-key': code }, body: '{}' });
+    d = await r.json();
+  } catch {
+    if (manuel) localStorage.removeItem('stremioSyncKey');
+    return { films: 0, saisons: 0, erreur: 'Code refusé ou serveur injoignable' };
+  }
+  if (!d || !d.ok) return { films: 0, saisons: 0, erreur: 'Bibliothèque Stremio illisible' };
+  localStorage.setItem('stremioSyncKey', code);
+  const fait = JSON.parse(localStorage.getItem('stremioApplied') || '{}');
+  let films = 0, saisons = 0;
+  for (const f of d.movies || []) {
+    if (fait[f.imdb]) continue;
+    const n = normSearch(f.name);
+    const mv = movies.find(m => m.imdb === f.imdb) || movies.find(m => !m.imdb && normSearch(m.title) === n);
+    if (mv) { if (!mv.seen) films++; mv.seen = true; mv.imdb = f.imdb; if (!mv.minutes && f.minutes) mv.minutes = f.minutes; }
+    else { movies.push({ id: 'imdb:' + f.imdb, imdb: f.imdb, title: f.name, year: null, poster: f.poster, justwatchUrl: '', seen: true, dateAdded: Date.parse(f.lastWatched) || Date.now(), minutes: f.minutes || null }); films++; }
+    fait[f.imdb] = { lw: f.lastWatched };
+  }
+  for (const s of d.series || []) {
+    const prev = fait[s.imdb] || {};
+    if (prev.lw === s.lastWatched) continue;
+    let seas;
+    try { seas = await stremioSeasonsSeen(s.imdb, s.watched); } catch { continue; }
+    const nouvelles = seas.filter(n => !(prev.seasons || []).includes(n));
+    if (nouvelles.length) {
+      let show = shows.find(x => x.imdb === s.imdb);
+      if (!show) {
+        try {
+          const t = await (await fetch(`${API}/lookup/shows?imdb=${s.imdb}`)).json();
+          show = shows.find(x => x.id === t.id);
+          if (!show && t.id) { show = { id: t.id, name: t.name, image: t.image ? t.image.medium : '', dateAdded: Date.now() }; shows.push(show); }
+        } catch {}
+        if (!show) continue;
+        show.imdb = s.imdb;
+      }
+      const avant = watched[show.id] || [];
+      const apres = [...new Set([...avant, ...nouvelles])];
+      saisons += apres.length - avant.length;
+      watched[show.id] = apres;
+      if (!epCache[show.id]?.seasons) await refreshEpisodes([show.id]);
+    }
+    fait[s.imdb] = { lw: s.lastWatched, seasons: seas };
+  }
+  localStorage.setItem('stremioApplied', JSON.stringify(fait));
+  if (films || saisons) { save(); render(); }
+  return { films, saisons };
 }
 
 // Ajout/retrait dans Mes films / Mes séries depuis une fiche ou une grille (SensCritique)
@@ -1321,6 +1423,13 @@ function openSauv() {
   });
 }
 $('#sauvBtn').onclick = openSauv;
+$('#stremioSyncBtn').onclick = async () => {
+  const b = $('#stremioSyncBtn');
+  b.textContent = '⟳ Synchro…';
+  const r = await stremioSync(true);
+  b.textContent = '⟳ Stremio';
+  alert(r.erreur || `Stremio : ${r.films} film${r.films > 1 ? 's' : ''} marqué${r.films > 1 ? 's' : ''} vu${r.films > 1 ? 's' : ''}, ${r.saisons} saison${r.saisons > 1 ? 's' : ''} cochée${r.saisons > 1 ? 's' : ''}.`);
+};
 
 /* ---- export / import sauvegarde ---- */
 $('#exportBtn').onclick = () => {
@@ -1420,6 +1529,7 @@ importHistory().then(failsShown => {
   const stale = shows.filter(s => !epCache[s.id] || !epCache[s.id].seasons || Date.now() - epCache[s.id].fetched > 6*3600*1000).map(s => s.id);
   if (stale.length) refreshEpisodes(stale).then(() => { if (!failsShown) render(); });
 });
+setTimeout(() => stremioSync(false), 1500); // synchro Stremio silencieuse à l'ouverture (si le code est déjà mémorisé)
 </script>
 </body>
 </html>

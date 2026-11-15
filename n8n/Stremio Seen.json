@@ -1,0 +1,137 @@
+{
+  "name": "Stremio Seen",
+  "nodes": [
+    {
+      "id": "ss1",
+      "name": "Webhook Stremio Seen",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "e3a91c57-2d84-4f6b-9c10-8b5d7e2f4a63",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "bT27rkpfXOUkhDEc",
+          "name": "Stremio Sync Key"
+        }
+      },
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stremio-seen",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "ss2",
+      "name": "Get Library",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        0
+      ],
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "7Vr61fmQJ3QV3ZpZ",
+          "name": "Stremio authKey."
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.strem.io/api/datastoreGet",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { collection: 'libraryItem', ids: [], all: true } }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "ss3",
+      "name": "Build Seen",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Films vus (flaggedWatched = 1) et sÃ©ries avec Ã©pisodes vus (champ watched, dÃ©codÃ© cÃ´tÃ© appli)\nconst lib = Array.isArray($input.first().json.result) ? $input.first().json.result : [];\nconst ok = i => i && !i.removed && /^tt[0-9]+$/.test(String(i._id)) && i.state;\nconst movies = lib.filter(i => ok(i) && i.type === 'movie' && i.state.flaggedWatched === 1).map(i => ({ imdb: i._id, name: i.name, poster: i.poster || '', minutes: i.state.duration ? Math.round(i.state.duration / 60000) : null, lastWatched: i.state.lastWatched || '' }));\nconst series = lib.filter(i => ok(i) && i.type === 'series' && /^tt[0-9]+:/.test(String(i.state.watched || ''))).map(i => ({ imdb: i._id, name: i.name, poster: i.poster || '', watched: i.state.watched, lastWatched: i.state.lastWatched || '' }));\nreturn [{ json: { ok: lib.length > 0, movies, series } }];"
+      }
+    },
+    {
+      "id": "ss4",
+      "name": "Respond Seen",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "pinData": null,
+  "connections": {
+    "Webhook Stremio Seen": {
+      "main": [
+        [
+          {
+            "node": "Get Library",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Library": {
+      "main": [
+        [
+          {
+            "node": "Build Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Seen": {
+      "main": [
+        [
+          {
+            "node": "Respond Seen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "id": "YGVQvpBCMu0iJWHQ",
+  "tags": []
+}
