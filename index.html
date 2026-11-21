@@ -266,6 +266,7 @@ $('#q').addEventListener('input', e => {
           ${has ? '<div class="added">✓ ajoutée</div>' : ''}</div>`;
       }).join('') || '<div class="res">Aucun résultat</div>';
     } catch { $('#results').innerHTML = '<div class="res">Erreur API TVMaze</div>'; }
+    appendScPeople($('#results'), q, true, () => $('#q').value.trim() === q, 'res');
   }, 350);
 });
 $('#results').addEventListener('click', e => {
@@ -930,6 +931,32 @@ function fuzzyIncludes(hay, needle) {
     for (let i = 0; i + len <= h.length; i++) if (lev1(h.substr(i, len), n)) return true;
   return false;
 }
+// Sépare les résultats SensCritique : titres qui contiennent la recherche / titres liés à une personne (acteur, réalisateur).
+// On écarte des seconds ceux dont le titre ne contient qu'un morceau de la recherche (ex. "Milos" seul).
+function scSplit(data, q, isSeries) {
+  const uni = isSeries ? 4 : 1;
+  const all = (data.results || []).filter(r => r.universe === uni).map(r => ({ id: r.id, title: r.title, originalTitle: r.originalTitle, year: r.year, poster: r.poster, url: r.url, releaseDate: r.releaseDate, rating: r.rating }));
+  const nq = normSearch(q);
+  const tokens = nq.split(' ').filter(t => t.length >= 3);
+  const compact = x => normSearch(x).replace(/ /g, ''); // "d'une" contient "dune"
+  const hasToken = r => tokens.some(t => compact(r.title).includes(t) || compact(r.originalTitle).includes(t));
+  const byTitle = all.filter(r => normSearch(r.title).includes(nq) || normSearch(r.originalTitle).includes(nq));
+  return { byTitle, others: all.filter(r => !byTitle.includes(r) && !hasToken(r)) };
+}
+const byRatingDesc = (a, b) => (parseFloat(b.rating) || 0) - (parseFloat(a.rating) || 0);
+// Chercher un film / une série : ajoute sous les résultats les titres liés à l'acteur ou au réalisateur cherché, les mieux notés d'abord
+async function appendScPeople(out, q, isSeries, stillCurrent, rowClass) {
+  let data;
+  try { data = await scSearch(q); } catch { return; }
+  if (!stillCurrent()) return;
+  const people = scSplit(data, q, isSeries).others.sort(byRatingDesc).slice(0, 20);
+  if (people.length < 3) return; // recherche par titre : pas de section personne
+  const box = document.createElement('div');
+  box.innerHTML = `<div class="weekhdr">${isSeries ? 'Séries' : 'Films'} liés à « ${esc(q)} » (acteur, réalisateur), les mieux notés</div>` +
+    people.map((f, i) => `<div class="${rowClass}" data-scp="${i}">${f.poster ? `<img src="${esc(f.poster)}" alt="">` : '<div class="noimg"></div>'}<div><div class="n">${esc(f.title)}</div><div class="y">${f.year || '?'}${f.rating ? ' · ★ ' + esc(f.rating) : ''}</div></div></div>`).join('');
+  box.querySelectorAll('[data-scp]').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); openScDetail(people[+el.dataset.scp], isSeries); }));
+  out.appendChild(box);
+}
 function mountScSearch(m, which, isSeries) {
   const h2 = m.querySelector('h2');
   if (!h2) return;
@@ -950,16 +977,11 @@ function mountScSearch(m, which, isSeries) {
     try { data = await scSearch(q); }
     catch { if (mine === seq) out.innerHTML = '<div class="empty">Recherche indisponible.</div>'; return; }
     if (mine !== seq || !out.isConnected) return;
-    const uni = isSeries ? 4 : 1;
-    const all = (data.results || []).filter(r => r.universe === uni).map(r => ({ id: r.id, title: r.title, originalTitle: r.originalTitle, year: r.year, poster: r.poster, url: r.url, releaseDate: r.releaseDate, rating: r.rating }));
-    const nq = normSearch(q);
+    const split = scSplit(data, q, isSeries);
     const dateKey = r => r.releaseDate || (r.year ? r.year + '-01-01' : '');
     const byDateDesc = (x, y) => (dateKey(y) || '0').localeCompare(dateKey(x) || '0'); // du plus récent au plus ancien, sans date à la fin
-    const tokens = nq.split(' ').filter(t => t.length >= 3);
-    const hasToken = r => tokens.some(t => normSearch(r.title).includes(t) || normSearch(r.originalTitle).includes(t));
-    const byTitle = all.filter(r => normSearch(r.title).includes(nq) || normSearch(r.originalTitle).includes(nq)).sort(byDateDesc);
-    // films liés à une personne : on écarte ceux dont le titre ne contient qu'un morceau de la recherche (ex. "Milos" seul)
-    const others = all.filter(r => !byTitle.includes(r) && !hasToken(r)).sort(byDateDesc).slice(0, 20);
+    const byTitle = split.byTitle.sort(byDateDesc);
+    const others = split.others.sort(byDateDesc).slice(0, 20);
     const card = f => {
       const img = f.poster ? `<img src="${esc(f.poster)}" alt="">` : `<div class="noimg">${esc(f.title)}</div>`;
       const inList = isSeries ? shows.some(x => x.name.toLowerCase() === f.title.toLowerCase()) : movies.some(x => x.id === f.id);
@@ -1200,6 +1222,7 @@ function renderMovies() {
             ${has ? '<div class="added" style="margin-left:auto;color:var(--accent);font-size:12px;font-weight:700">✓ ajouté</div>' : ''}</div>`;
         }).join('') : '<div class="empty">Aucun film trouvé.</div>';
       } catch { $('#movieResults').innerHTML = '<div class="empty">Erreur de recherche.</div>'; }
+      appendScPeople($('#movieResults'), q, false, () => ($('#movieSearch') || {}).value?.trim() === q, 'where-res');
     }, 400);
   });
   $('#movieResults').addEventListener('click', e => {

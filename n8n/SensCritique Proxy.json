@@ -61,6 +61,75 @@
     },
     {
       "parameters": {
+        "jsCode": "const movieRaw = $('Query GraphQL').item.json;\nconst seriesRaw = $('Query GraphQL Series').item.json;\nconst movieUni = movieRaw?.data?.homepageUniverses || {};\nconst seriesUni = seriesRaw?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : '',\n    scouts: p.scoutsAverage?.average ?? null,\n    scoutsCount: p.scoutsAverage?.count ?? 0\n  };\n}\n\nconst movieReleases = (movieUni.newRelease || []).map(mapProduct);\nconst movieAwaitedSel = (movieUni.selections || []).find(s => s.label === 'film_attendu');\nlet movieAwaited = (movieAwaitedSel?.products || []).map(mapProduct);\n\nconst seriesReleasesSel = (seriesUni.selections || []).find(s => s.label === 'nouvelle_serie');\nconst seriesReleases = (seriesReleasesSel?.products || []).map(mapProduct);\nconst seriesAwaitedSel = (seriesUni.selections || []).find(s => s.label === 'serie_attendue');\nlet seriesAwaited = (seriesAwaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || p.frenchReleaseDate || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nfunction attachDatesAndFilter(list) {\n  return list.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n    .filter(f => !f.releaseDate || f.releaseDate >= today);\n}\nmovieAwaited = attachDatesAndFilter(movieAwaited);\nseriesAwaited = attachDatesAndFilter(seriesAwaited);\n\nreturn [{ json: {\n  movies: { releases: movieReleases, awaited: movieAwaited },\n  series: { releases: seriesReleases, awaited: seriesAwaited },\n  fetchedAt: new Date().toISOString()\n} }];"
+      },
+      "id": "s3",
+      "name": "Normalize results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              }
+            ]
+          }
+        }
+      },
+      "id": "s4",
+      "name": "Respond JSON",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://apollo.senscritique.com/",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => { const movieUni = ($('Query GraphQL').item.json.data && $('Query GraphQL').item.json.data.homepageUniverses) || {}; const seriesUni = ($json.data && $json.data.homepageUniverses) || {}; const movieAwaited = (movieUni.selections || []).find(function(s) { return s.label === 'film_attendu'; }); const seriesAwaited = (seriesUni.selections || []).find(function(s) { return s.label === 'serie_attendue'; }); const movieIds = ((movieAwaited && movieAwaited.products) || []).map(function(p) { return p.id; }); const seriesIds = ((seriesAwaited && seriesAwaited.products) || []).map(function(p) { return p.id; }); const uniqueIds = Array.from(new Set(movieIds.concat(seriesIds))); const fields = uniqueIds.map(function(id) { return 'p' + id + ': product(id: ' + id + ') { id dateReleaseOriginal frenchReleaseDate }'; }).join(' '); return JSON.stringify({ query: 'query { ' + fields + ' }' }); })() }}",
+        "options": {}
+      },
+      "id": "s5",
+      "name": "Query Dates",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        448,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "https://apollo.senscritique.com/",
         "sendHeaders": true,
@@ -101,75 +170,6 @@
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "https://apollo.senscritique.com/",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            },
-            {
-              "name": "User-Agent",
-              "value": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={{ (() => { const movieUni = ($('Query GraphQL').item.json.data && $('Query GraphQL').item.json.data.homepageUniverses) || {}; const seriesUni = ($json.data && $json.data.homepageUniverses) || {}; const movieAwaited = (movieUni.selections || []).find(function(s) { return s.label === 'film_attendu'; }); const seriesAwaited = (seriesUni.selections || []).find(function(s) { return s.label === 'serie_attendue'; }); const movieIds = ((movieAwaited && movieAwaited.products) || []).map(function(p) { return p.id; }); const seriesIds = ((seriesAwaited && seriesAwaited.products) || []).map(function(p) { return p.id; }); const uniqueIds = Array.from(new Set(movieIds.concat(seriesIds))); const fields = uniqueIds.map(function(id) { return 'p' + id + ': product(id: ' + id + ') { id dateReleaseOriginal frenchReleaseDate }'; }).join(' '); return JSON.stringify({ query: 'query { ' + fields + ' }' }); })() }}",
-        "options": {}
-      },
-      "id": "s5",
-      "name": "Query Dates",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        448,
-        0
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "jsCode": "const movieRaw = $('Query GraphQL').item.json;\nconst seriesRaw = $('Query GraphQL Series').item.json;\nconst movieUni = movieRaw?.data?.homepageUniverses || {};\nconst seriesUni = seriesRaw?.data?.homepageUniverses || {};\n\nfunction mapProduct(p) {\n  return {\n    id: String(p.id),\n    title: p.title || '',\n    year: p.yearOfProduction || null,\n    rating: typeof p.rating === 'number' ? p.rating : null,\n    wishCount: p.stats?.wishCount ?? 0,\n    ratingCount: p.stats?.ratingCount ?? 0,\n    poster: p.medias?.picture || '',\n    url: p.url ? 'https://www.senscritique.com' + p.url : '',\n    scouts: p.scoutsAverage?.average ?? null,\n    scoutsCount: p.scoutsAverage?.count ?? 0\n  };\n}\n\nconst movieReleases = (movieUni.newRelease || []).map(mapProduct);\nconst movieAwaitedSel = (movieUni.selections || []).find(s => s.label === 'film_attendu');\nlet movieAwaited = (movieAwaitedSel?.products || []).map(mapProduct);\n\nconst seriesReleasesSel = (seriesUni.selections || []).find(s => s.label === 'nouvelle_serie');\nconst seriesReleases = (seriesReleasesSel?.products || []).map(mapProduct);\nconst seriesAwaitedSel = (seriesUni.selections || []).find(s => s.label === 'serie_attendue');\nlet seriesAwaited = (seriesAwaitedSel?.products || []).map(mapProduct);\n\n// Fusionne les dates de sortie recuperees par le node Query Dates\nconst datesRaw = items[0]?.json?.data || {};\nconst dateById = {};\nfor (const key of Object.keys(datesRaw)) {\n  const p = datesRaw[key];\n  if (p?.id) dateById[String(p.id)] = p.dateReleaseOriginal || p.frenchReleaseDate || null;\n}\nconst today = new Date().toISOString().slice(0, 10);\nfunction attachDatesAndFilter(list) {\n  return list.map(f => ({ ...f, releaseDate: dateById[f.id] || null }))\n    .filter(f => !f.releaseDate || f.releaseDate >= today);\n}\nmovieAwaited = attachDatesAndFilter(movieAwaited);\nseriesAwaited = attachDatesAndFilter(seriesAwaited);\n\nreturn [{ json: {\n  movies: { releases: movieReleases, awaited: movieAwaited },\n  series: { releases: seriesReleases, awaited: seriesAwaited },\n  fetchedAt: new Date().toISOString()\n} }];"
-      },
-      "id": "s3",
-      "name": "Normalize results",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        672,
-        0
-      ]
-    },
-    {
-      "parameters": {
-        "respondWith": "json",
-        "responseBody": "={{ $json }}",
-        "options": {
-          "responseHeaders": {
-            "entries": [
-              {
-                "name": "Access-Control-Allow-Origin",
-                "value": "*"
-              }
-            ]
-          }
-        }
-      },
-      "id": "s4",
-      "name": "Respond JSON",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        896,
-        0
-      ]
-    },
-    {
-      "parameters": {
         "httpMethod": "POST",
         "path": "senscritique-detail",
         "responseMode": "responseNode",
@@ -190,6 +190,8 @@
       "parameters": {
         "method": "POST",
         "url": "https://apollo.senscritique.com/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -206,9 +208,7 @@
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ query: 'query { product(id: ' + Number($json.body.id) + ') { id title url synopsis rating scoutsAverage { average count } yearOfProduction directors { name } creators { name } actors { name role } medias { videos { id } backdrop picture } } }' }) }}",
-        "options": {},
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth"
+        "options": {}
       },
       "id": "s8",
       "name": "Query Detail",
@@ -218,13 +218,13 @@
         224,
         240
       ],
-      "onError": "continueRegularOutput",
       "credentials": {
         "httpHeaderAuth": {
           "id": "SvnNZgHO05QApH3e",
           "name": "SensCritique Jeton"
         }
-      }
+      },
+      "onError": "continueRegularOutput"
     },
     {
       "parameters": {
@@ -359,12 +359,6 @@
       ]
     },
     {
-      "parameters": {
-        "httpMethod": "POST",
-        "path": "senscritique-search",
-        "responseMode": "responseNode",
-        "options": {}
-      },
       "id": "ss1",
       "name": "Webhook Search List",
       "type": "n8n-nodes-base.webhook",
@@ -373,10 +367,24 @@
         0,
         700
       ],
-      "webhookId": "a3f5c8d1-9e24-4b67-8d0a-6c1e7f2b4a95",
-      "onError": "continueRegularOutput"
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "senscritique-search",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "onError": "continueRegularOutput",
+      "webhookId": "a3f5c8d1-9e24-4b67-8d0a-6c1e7f2b4a95"
     },
     {
+      "id": "ss2",
+      "name": "Query Search List",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        224,
+        700
+      ],
       "parameters": {
         "method": "POST",
         "url": "https://apollo.senscritique.com/",
@@ -395,23 +403,12 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ operationName: 'SearchAutocomplete', variables: { keywords: String(($json.body && $json.body.q) || ''), universe: null, limit: 30 }, query: 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { id title originalTitle dateRelease dateReleaseOriginal yearOfProduction universe url rating medias(backdropSize: \"300\") { picture } } } } }' }) }}",
+        "jsonBody": "={{ JSON.stringify({ operationName: 'SearchAutocomplete', variables: { keywords: String(($json.body && $json.body.q) || ''), universe: null, limit: 100 }, query: 'query SearchAutocomplete($keywords: String!, $universe: String, $limit: Int) { searchAutocomplete(keywords: $keywords, universe: $universe, limit: $limit) { items { product { id title originalTitle dateRelease dateReleaseOriginal yearOfProduction universe url rating medias(backdropSize: \"300\") { picture } } } } }' }) }}",
         "options": {}
       },
-      "id": "ss2",
-      "name": "Query Search List",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.4,
-      "position": [
-        224,
-        700
-      ],
       "onError": "continueRegularOutput"
     },
     {
-      "parameters": {
-        "jsCode": "const raw = items[0].json;\nconst list = (raw && raw.data && raw.data.searchAutocomplete && raw.data.searchAutocomplete.items) || [];\nconst iso = d => (typeof d === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(d)) ? d.slice(0, 10) : null;\nconst results = [];\nfor (const it of list) {\n  const p = it && it.product;\n  if (!p || (p.universe !== 1 && p.universe !== 4)) continue;\n  const date = iso(p.dateRelease) || iso(p.dateReleaseOriginal);\n  results.push({\n    id: String(p.id),\n    title: p.title || '',\n    originalTitle: p.originalTitle || null,\n    year: p.yearOfProduction || (date ? date.slice(0, 4) : null),\n    releaseDate: date,\n    rating: p.rating || null,\n    universe: p.universe,\n    url: p.url ? 'https://www.senscritique.com' + p.url : null,\n    poster: (p.medias && p.medias.picture) || null\n  });\n}\nreturn [{ json: { results } }];"
-      },
       "id": "ss3",
       "name": "Normalize Search List",
       "type": "n8n-nodes-base.code",
@@ -419,9 +416,20 @@
       "position": [
         448,
         700
-      ]
+      ],
+      "parameters": {
+        "jsCode": "const raw = items[0].json;\nconst list = (raw && raw.data && raw.data.searchAutocomplete && raw.data.searchAutocomplete.items) || [];\nconst iso = d => (typeof d === 'string' && /^[0-9]{4}-[0-9]{2}-[0-9]{2}/.test(d)) ? d.slice(0, 10) : null;\nconst results = [];\nfor (const it of list) {\n  const p = it && it.product;\n  if (!p || (p.universe !== 1 && p.universe !== 4)) continue;\n  const date = iso(p.dateRelease) || iso(p.dateReleaseOriginal);\n  results.push({\n    id: String(p.id),\n    title: p.title || '',\n    originalTitle: p.originalTitle || null,\n    year: p.yearOfProduction || (date ? date.slice(0, 4) : null),\n    releaseDate: date,\n    rating: p.rating || null,\n    universe: p.universe,\n    url: p.url ? 'https://www.senscritique.com' + p.url : null,\n    poster: (p.medias && p.medias.picture) || null\n  });\n}\nreturn [{ json: { results } }];"
+      }
     },
     {
+      "id": "ss4",
+      "name": "Respond Search List",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        672,
+        700
+      ],
       "parameters": {
         "respondWith": "json",
         "responseBody": "={{ $json }}",
@@ -435,15 +443,7 @@
             ]
           }
         }
-      },
-      "id": "ss4",
-      "name": "Respond Search List",
-      "type": "n8n-nodes-base.respondToWebhook",
-      "typeVersion": 1.5,
-      "position": [
-        672,
-        700
-      ]
+      }
     }
   ],
   "pinData": {},
@@ -453,6 +453,28 @@
         [
           {
             "node": "Query GraphQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize results": {
+      "main": [
+        [
+          {
+            "node": "Respond JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Dates": {
+      "main": [
+        [
+          {
+            "node": "Normalize results",
             "type": "main",
             "index": 0
           }
@@ -475,28 +497,6 @@
         [
           {
             "node": "Query Dates",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Query Dates": {
-      "main": [
-        [
-          {
-            "node": "Normalize results",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize results": {
-      "main": [
-        [
-          {
-            "node": "Respond JSON",
             "type": "main",
             "index": 0
           }
